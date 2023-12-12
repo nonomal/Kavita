@@ -6,6 +6,7 @@ import { UpdateVersionEvent } from '../_models/events/update-version-event';
 import { Job } from '../_models/job/job';
 import { KavitaMediaError } from '../admin/_models/media-error';
 import {TextResonse} from "../_types/text-response";
+import {KavitaUpdate} from "../_models/events/kavita-update";
 
 @Injectable({
   providedIn: 'root'
@@ -39,6 +40,10 @@ export class ServerService {
 
   checkForUpdate() {
     return this.httpClient.get<UpdateVersionEvent>(this.baseUrl + 'server/check-update', {});
+  }
+
+  checkForUpdates() {
+    return this.httpClient.get<KavitaUpdate[]>(this.baseUrl + 'server/check-for-updates', {});
   }
 
   getChangelog() {

@@ -2,7 +2,7 @@ import {ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, injec
 import {Title} from '@angular/platform-browser';
 import {Router, RouterLink} from '@angular/router';
 import {Observable, of, ReplaySubject, Subject, switchMap} from 'rxjs';
-import {debounceTime, map, shareReplay, take, tap, throttleTime} from 'rxjs/operators';
+import {debounceTime, filter, map, shareReplay, take, tap, throttleTime} from 'rxjs/operators';
 import {FilterUtilitiesService} from 'src/app/shared/_services/filter-utilities.service';
 import {Library} from 'src/app/_models/library/library';
 import {RecentlyAddedItem} from 'src/app/_models/recently-added-item';
@@ -30,6 +30,7 @@ import {Genre} from "../../_models/metadata/genre";
 import {DashboardStream} from "../../_models/dashboard/dashboard-stream";
 import {StreamType} from "../../_models/dashboard/stream-type.enum";
 import {LoadingComponent} from "../../shared/loading/loading.component";
+import {ServerService} from "../../_services/server.service";
 
 @Component({
   selector: 'app-dashboard',
@@ -55,6 +56,7 @@ export class DashboardComponent implements OnInit {
   private readonly messageHub = inject(MessageHubService);
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly dashboardService = inject(DashboardService);
+  private readonly serverService = inject(ServerService);
 
   libraries$: Observable<Library[]> = this.libraryService.getLibraries().pipe(take(1), takeUntilDestroyed(this.destroyRef))
   isLoadingDashboard = true;
@@ -76,6 +78,11 @@ export class DashboardComponent implements OnInit {
 
   constructor() {
     this.loadDashboard();
+
+    this.accountService.currentUser$.pipe(
+      filter(u => this.accountService.hasAdminRole(u!)),
+      switchMap(_ => this.serverService.checkForUpdates()))
+    .subscribe();
 
     this.refreshStreamsFromDashboardUpdate$.pipe(takeUntilDestroyed(this.destroyRef), debounceTime(1000),
       tap(() => {
