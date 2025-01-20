@@ -36,6 +36,8 @@ public interface IReadingListRepository
     Task<IEnumerable<ReadingListItem>> GetReadingListItemsByIdAsync(int readingListId);
     Task<IEnumerable<ReadingListDto>> GetReadingListDtosForSeriesAndUserAsync(int userId, int seriesId,
         bool includePromoted);
+    Task<IEnumerable<ReadingListDto>> GetReadingListDtosForChapterAndUserAsync(int userId, int chapterId,
+        bool includePromoted);
     void Remove(ReadingListItem item);
     void Add(ReadingList list);
     void BulkRemove(IEnumerable<ReadingListItem> items);
@@ -49,6 +51,7 @@ public interface IReadingListRepository
     Task<IList<ReadingList>> GetAllWithCoversInDifferentEncoding(EncodeFormat encodeFormat);
     Task<int> RemoveReadingListsWithoutSeries();
     Task<ReadingList?> GetReadingListByTitleAsync(string name, int userId, ReadingListIncludes includes = ReadingListIncludes.Items);
+    Task<IEnumerable<ReadingList>> GetReadingListsByIds(IList<int> ids, ReadingListIncludes includes = ReadingListIncludes.Items);
 }
 
 public class ReadingListRepository : IReadingListRepository
@@ -82,7 +85,7 @@ public class ReadingListRepository : IReadingListRepository
         return await _context.ReadingList
             .Where(c => c.Id == readingListId)
             .Select(c => c.CoverImage)
-            .SingleOrDefaultAsync();
+            .FirstOrDefaultAsync();
     }
 
     public async Task<IList<string>> GetAllCoverImagesAsync()
@@ -119,8 +122,10 @@ public class ReadingListRepository : IReadingListRepository
     {
         return _context.ReadingListItem
             .Where(item => item.ReadingListId == readingListId)
-            .SelectMany(item => item.Chapter.People.Where(p => p.Role == PersonRole.Character))
-            .OrderBy(p => p.NormalizedName)
+            .SelectMany(item => item.Chapter.People)
+            .Where(p => p.Role == PersonRole.Character)
+            .OrderBy(p => p.Person.NormalizedName)
+            .Select(p => p.Person)
             .Distinct()
             .ProjectTo<PersonDto>(_mapper.ConfigurationProvider)
             .AsEnumerable();
@@ -155,6 +160,17 @@ public class ReadingListRepository : IReadingListRepository
             .Includes(includes)
             .FirstOrDefaultAsync(x => x.NormalizedTitle != null && x.NormalizedTitle.Equals(normalized) && x.AppUserId == userId);
     }
+
+    public async Task<IEnumerable<ReadingList>> GetReadingListsByIds(IList<int> ids, ReadingListIncludes includes = ReadingListIncludes.Items)
+    {
+        return await _context.ReadingList
+            .Where(c => ids.Contains(c.Id))
+            .Includes(includes)
+            .AsSplitQuery()
+            .ToListAsync();
+    }
+
+
 
     public void Remove(ReadingListItem item)
     {
@@ -194,6 +210,19 @@ public class ReadingListRepository : IReadingListRepository
         return await query.ToListAsync();
     }
 
+    public async Task<IEnumerable<ReadingListDto>> GetReadingListDtosForChapterAndUserAsync(int userId, int chapterId, bool includePromoted)
+    {
+        var query = _context.ReadingList
+            .Where(l => l.AppUserId == userId || (includePromoted && l.Promoted ))
+            .Where(l => l.Items.Any(i => i.ChapterId == chapterId))
+            .AsSplitQuery()
+            .OrderBy(l => l.Title)
+            .ProjectTo<ReadingListDto>(_mapper.ConfigurationProvider)
+            .AsNoTracking();
+
+        return await query.ToListAsync();
+    }
+
     public async Task<ReadingList?> GetReadingListByIdAsync(int readingListId, ReadingListIncludes includes = ReadingListIncludes.None)
     {
         return await _context.ReadingList
@@ -206,13 +235,7 @@ public class ReadingListRepository : IReadingListRepository
 
     public async Task<IEnumerable<ReadingListItemDto>> GetReadingListItemDtosByIdAsync(int readingListId, int userId)
     {
-        var userLibraries = _context.Library
-            .Include(l => l.AppUsers)
-            .Where(library => library.AppUsers.Any(user => user.Id == userId))
-            .AsSplitQuery()
-            .AsNoTracking()
-            .Select(library => library.Id)
-            .ToList();
+        var userLibraries = _context.Library.GetUserLibraries(userId);
 
         var items = await _context.ReadingListItem
             .Where(s => s.ReadingListId == readingListId)
@@ -223,7 +246,9 @@ public class ReadingListRepository : IReadingListRepository
                 chapter.ReleaseDate,
                 ReadingListItem = data,
                 ChapterTitleName = chapter.TitleName,
-                FileSize = chapter.Files.Sum(f => f.Bytes)
+                FileSize = chapter.Files.Sum(f => f.Bytes),
+                chapter.Summary,
+                chapter.IsSpecial
 
             })
             .Join(_context.Volume, s => s.ReadingListItem.VolumeId, volume => volume.Id, (data, volume) => new
@@ -234,6 +259,8 @@ public class ReadingListRepository : IReadingListRepository
                 data.ReleaseDate,
                 data.ChapterTitleName,
                 data.FileSize,
+                data.Summary,
+                data.IsSpecial,
                 VolumeId = volume.Id,
                 VolumeNumber = volume.Name,
             })
@@ -251,6 +278,8 @@ public class ReadingListRepository : IReadingListRepository
                     data.ReleaseDate,
                     data.ChapterTitleName,
                     data.FileSize,
+                    data.Summary,
+                    data.IsSpecial,
                     LibraryName = _context.Library.Where(l => l.Id == s.LibraryId).Select(l => l.Name).Single(),
                     LibraryType = _context.Library.Where(l => l.Id == s.LibraryId).Select(l => l.Type).Single()
                 })
@@ -272,7 +301,9 @@ public class ReadingListRepository : IReadingListRepository
                 LibraryType = data.LibraryType,
                 ChapterTitleName = data.ChapterTitleName,
                 LibraryName = data.LibraryName,
-                FileSize = data.FileSize
+                FileSize = data.FileSize,
+                Summary = data.Summary,
+                IsSpecial = data.IsSpecial
             })
             .Where(o => userLibraries.Contains(o.LibraryId))
             .OrderBy(rli => rli.Order)

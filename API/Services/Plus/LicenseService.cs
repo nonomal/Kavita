@@ -1,10 +1,13 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using API.Constants;
 using API.Data;
 using API.DTOs.Account;
-using API.DTOs.License;
+using API.DTOs.KavitaPlus.License;
 using API.Entities.Enums;
+using API.Extensions;
+using API.Services.Tasks;
 using EasyCaching.Core;
 using Flurl.Http;
 using Kavita.Common;
@@ -29,17 +32,20 @@ public interface ILicenseService
     Task<bool> HasActiveLicense(bool forceCheck = false);
     Task<bool> HasActiveSubscription(string? license);
     Task<bool> ResetLicense(string license, string email);
+    Task<LicenseInfoDto?> GetLicenseInfo(bool forceCheck = false);
 }
 
 public class LicenseService(
     IEasyCachingProviderFactory cachingProviderFactory,
     IUnitOfWork unitOfWork,
-    ILogger<LicenseService> logger)
+    ILogger<LicenseService> logger,
+    IVersionUpdaterService versionUpdaterService)
     : ILicenseService
 {
     private readonly TimeSpan _licenseCacheTimeout = TimeSpan.FromHours(8);
-    public const string Cron = "0 */4 * * *";
+    public const string Cron = "0 */9 * * *";
     private const string CacheKey = "license";
+    private const string LicenseInfoCacheKey = "license-info";
 
 
     /// <summary>
@@ -53,13 +59,7 @@ public class LicenseService(
         try
         {
             var response = await (Configuration.KavitaPlusApiUrl + "/api/license/check")
-                .WithHeader("Accept", "application/json")
-                .WithHeader("User-Agent", "Kavita")
-                .WithHeader("x-license-key", license)
-                .WithHeader("x-installId", HashUtil.ServerToken())
-                .WithHeader("x-kavita-version", BuildInfo.Version)
-                .WithHeader("Content-Type", "application/json")
-                .WithTimeout(TimeSpan.FromSeconds(Configuration.DefaultTimeOutSecs))
+                .WithKavitaPlusHeaders(license)
                 .PostJsonAsync(new LicenseValidDto()
                 {
                     License = license,
@@ -87,13 +87,7 @@ public class LicenseService(
         try
         {
             var response = await (Configuration.KavitaPlusApiUrl + "/api/license/register")
-                .WithHeader("Accept", "application/json")
-                .WithHeader("User-Agent", "Kavita")
-                .WithHeader("x-license-key", license)
-                .WithHeader("x-installId", HashUtil.ServerToken())
-                .WithHeader("x-kavita-version", BuildInfo.Version)
-                .WithHeader("Content-Type", "application/json")
-                .WithTimeout(TimeSpan.FromSeconds(Configuration.DefaultTimeOutSecs))
+                .WithKavitaPlusHeaders(license)
                 .PostJsonAsync(new EncryptLicenseDto()
                 {
                     License = license.Trim(),
@@ -118,36 +112,6 @@ public class LicenseService(
         }
     }
 
-    /// <summary>
-    /// Checks licenses and updates cache
-    /// </summary>
-    /// <remarks>Expected to be called at startup and on reoccurring basis</remarks>
-    // public async Task ValidateLicenseStatus()
-    // {
-    //     var provider = _cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
-    //     try
-    //     {
-    //         var license = await _unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey);
-    //         if (string.IsNullOrEmpty(license.Value)) {
-    //             await provider.SetAsync(CacheKey, false, _licenseCacheTimeout);
-    //             return;
-    //         }
-    //
-    //         _logger.LogInformation("Validating Kavita+ License");
-    //
-    //         await provider.FlushAsync();
-    //         var isValid = await IsLicenseValid(license.Value);
-    //         await provider.SetAsync(CacheKey, isValid, _licenseCacheTimeout);
-    //
-    //         _logger.LogInformation("Validating Kavita+ License - Complete");
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         _logger.LogError(ex, "There was an error talking with Kavita+ API for license validation. Rescheduling check in 30 mins");
-    //         await provider.SetAsync(CacheKey, false, _licenseCacheTimeout);
-    //         BackgroundJob.Schedule(() => ValidateLicenseStatus(), TimeSpan.FromMinutes(30));
-    //     }
-    // }
 
     /// <summary>
     /// Checks licenses and updates cache
@@ -181,33 +145,30 @@ public class LicenseService(
         return false;
     }
 
+    /// <summary>
+    /// Checks if the sub is active and caches the result. This should not be used too much over cache as it will skip backend caching.
+    /// </summary>
+    /// <param name="license"></param>
+    /// <returns></returns>
     public async Task<bool> HasActiveSubscription(string? license)
     {
         if (string.IsNullOrWhiteSpace(license)) return false;
         try
         {
             var response = await (Configuration.KavitaPlusApiUrl + "/api/license/check-sub")
-                .WithHeader("Accept", "application/json")
-                .WithHeader("User-Agent", "Kavita")
-                .WithHeader("x-license-key", license)
-                .WithHeader("x-installId", HashUtil.ServerToken())
-                .WithHeader("x-kavita-version", BuildInfo.Version)
-                .WithHeader("Content-Type", "application/json")
-                .WithTimeout(TimeSpan.FromSeconds(Configuration.DefaultTimeOutSecs))
+                .WithKavitaPlusHeaders(license)
                 .PostJsonAsync(new LicenseValidDto()
                 {
                     License = license,
                     InstallId = HashUtil.ServerToken()
                 })
                 .ReceiveString();
+
             var result =  bool.Parse(response);
 
-            if (!result)
-            {
-                var provider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
-                await provider.FlushAsync();
-                await provider.SetAsync(CacheKey, result, _licenseCacheTimeout);
-            }
+            var provider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
+            await provider.FlushAsync();
+            await provider.SetAsync(CacheKey, result, _licenseCacheTimeout);
 
             return result;
         }
@@ -224,8 +185,11 @@ public class LicenseService(
         serverSetting.Value = string.Empty;
         unitOfWork.SettingsRepository.Update(serverSetting);
         await unitOfWork.CommitAsync();
+
         var provider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
         await provider.RemoveAsync(CacheKey);
+
+
     }
 
     public async Task AddLicense(string license, string email, string? discordId)
@@ -247,13 +211,7 @@ public class LicenseService(
         {
             var encryptedLicense = await unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey);
             var response = await (Configuration.KavitaPlusApiUrl + "/api/license/reset")
-                .WithHeader("Accept", "application/json")
-                .WithHeader("User-Agent", "Kavita")
-                .WithHeader("x-license-key", encryptedLicense.Value)
-                .WithHeader("x-installId", HashUtil.ServerToken())
-                .WithHeader("x-kavita-version", BuildInfo.Version)
-                .WithHeader("Content-Type", "application/json")
-                .WithTimeout(TimeSpan.FromSeconds(Configuration.DefaultTimeOutSecs))
+                .WithKavitaPlusHeaders(encryptedLicense.Value)
                 .PostJsonAsync(new ResetLicenseDto()
                 {
                     License = license.Trim(),
@@ -278,5 +236,68 @@ public class LicenseService(
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Fetches information about the license from Kavita+. If there is no license or an exception, will return null and can be assumed it is not active
+    /// </summary>
+    /// <param name="forceCheck"></param>
+    /// <returns></returns>
+    public async Task<LicenseInfoDto?> GetLicenseInfo(bool forceCheck = false)
+    {
+        // Check if there is a license
+        var hasLicense =
+            !string.IsNullOrEmpty((await unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey))
+                .Value);
+
+        if (!hasLicense) return null;
+
+        // Check the cache
+        var licenseInfoProvider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.LicenseInfo);
+        if (!forceCheck)
+        {
+            var cacheValue = await licenseInfoProvider.GetAsync<LicenseInfoDto>(LicenseInfoCacheKey);
+            if (cacheValue.HasValue) return cacheValue.Value;
+        }
+
+
+        try
+        {
+            var encryptedLicense = await unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.LicenseKey);
+            var response = await (Configuration.KavitaPlusApiUrl + "/api/license/info")
+                .WithKavitaPlusHeaders(encryptedLicense.Value)
+                .GetJsonAsync<LicenseInfoDto>();
+
+            // This indicates a mismatch on installId or no active subscription
+            if (response == null) return null;
+
+            // Ensure that current version is within the 3 version limit. Don't count Nightly releases or Hotfixes
+            var releases = await versionUpdaterService.GetAllReleases();
+            response.IsValidVersion = releases
+                .Where(r => !r.UpdateTitle.Contains("Hotfix")) // We don't care about Hotfix releases
+                .Where(r => !r.IsPrerelease || BuildInfo.Version.IsWithinStableRelease(new Version(r.UpdateVersion))) // Ensure we don't take current nightlies within the current/last stable
+                .Take(3)
+                .All(r => new Version(r.UpdateVersion) <= BuildInfo.Version);
+
+            response.HasLicense = hasLicense;
+
+            // Cache if the license is valid here as well
+            var licenseProvider = cachingProviderFactory.GetCachingProvider(EasyCacheProfiles.License);
+            await licenseProvider.SetAsync(CacheKey, response.IsActive, _licenseCacheTimeout);
+
+            // Cache the license info if IsActive and ExpirationDate > DateTime.UtcNow + 2
+            if (response.IsActive && response.ExpirationDate > DateTime.UtcNow.AddDays(2))
+            {
+                await licenseInfoProvider.SetAsync(LicenseInfoCacheKey, response, _licenseCacheTimeout);
+            }
+
+            return response;
+        }
+        catch (FlurlHttpException e)
+        {
+            logger.LogError(e, "An error happened during the request to Kavita+ API");
+        }
+
+        return null;
     }
 }

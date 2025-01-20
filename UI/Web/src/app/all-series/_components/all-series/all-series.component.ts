@@ -29,7 +29,7 @@ import { CardDetailLayoutComponent } from '../../../cards/card-detail-layout/car
 import { BulkOperationsComponent } from '../../../cards/bulk-operations/bulk-operations.component';
 import { NgIf, DecimalPipe } from '@angular/common';
 import { SideNavCompanionBarComponent } from '../../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component';
-import {translate, TranslocoDirective} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {SeriesFilterV2} from "../../../_models/metadata/v2/series-filter-v2";
 
 
@@ -112,6 +112,7 @@ export class AllSeriesComponent implements OnInit {
     private readonly cdRef: ChangeDetectorRef) {
 
     this.router.routeReuseStrategy.shouldReuseRoute = () => false;
+    console.log('url: ', this.route.snapshot);
 
     this.filterUtilityService.filterPresetsFromUrl(this.route.snapshot).subscribe(filter => {
       this.filter = filter;
@@ -131,21 +132,6 @@ export class AllSeriesComponent implements OnInit {
       this.loadPage();
     });
   }
-
-  @HostListener('document:keydown.shift', ['$event'])
-  handleKeypress(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = true;
-    }
-  }
-
-  @HostListener('document:keyup.shift', ['$event'])
-  handleKeyUp(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = false;
-    }
-  }
-
 
   updateFilter(data: FilterEvent) {
     if (data.filterV2 === undefined) return;

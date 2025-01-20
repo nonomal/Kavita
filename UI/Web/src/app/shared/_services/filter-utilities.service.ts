@@ -1,4 +1,4 @@
-import {Injectable} from '@angular/core';
+import {inject, Injectable} from '@angular/core';
 import {ActivatedRouteSnapshot, Params, Router} from '@angular/router';
 import {SortField, SortOptions} from 'src/app/_models/metadata/series-filter';
 import {MetadataService} from "../../_services/metadata.service";
@@ -7,11 +7,12 @@ import {FilterStatement} from "../../_models/metadata/v2/filter-statement";
 import {FilterCombination} from "../../_models/metadata/v2/filter-combination";
 import {FilterField} from "../../_models/metadata/v2/filter-field";
 import {FilterComparison} from "../../_models/metadata/v2/filter-comparison";
-import {HttpClient} from "@angular/common/http";
+import { HttpClient } from "@angular/common/http";
 import {TextResonse} from "../../_types/text-response";
 import {environment} from "../../../environments/environment";
 import {map, tap} from "rxjs/operators";
 import {of, switchMap} from "rxjs";
+import {Location} from "@angular/common";
 
 
 @Injectable({
@@ -19,9 +20,12 @@ import {of, switchMap} from "rxjs";
 })
 export class FilterUtilitiesService {
 
-  private apiUrl = environment.apiUrl;
+  private readonly location = inject(Location);
+  private readonly router = inject(Router);
+  private readonly metadataService = inject(MetadataService);
+  private readonly http = inject(HttpClient);
 
-  constructor(private metadataService: MetadataService, private router: Router, private http: HttpClient) {}
+  private apiUrl = environment.apiUrl;
 
   encodeFilter(filter: SeriesFilterV2 | undefined) {
     return this.http.post<string>(this.apiUrl + 'filter/encode', filter, TextResonse);

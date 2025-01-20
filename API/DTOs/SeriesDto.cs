@@ -5,7 +5,7 @@ using API.Entities.Interfaces;
 namespace API.DTOs;
 #nullable enable
 
-public class SeriesDto : IHasReadTimeEstimate
+public class SeriesDto : IHasReadTimeEstimate, IHasCoverImage
 {
     public int Id { get; init; }
     public string? Name { get; init; }
@@ -53,13 +53,38 @@ public class SeriesDto : IHasReadTimeEstimate
     /// <inheritdoc cref="IHasReadTimeEstimate.MaxHoursToRead"/>
     public int MaxHoursToRead { get; set; }
     /// <inheritdoc cref="IHasReadTimeEstimate.AvgHoursToRead"/>
-    public int AvgHoursToRead { get; set; }
+    public float AvgHoursToRead { get; set; }
     /// <summary>
     /// The highest level folder for this Series
     /// </summary>
     public string FolderPath { get; set; } = default!;
     /// <summary>
+    /// Lowest path (that is under library root) that contains all files for the series.
+    /// </summary>
+    /// <remarks><see cref="Services.Tasks.Scanner.Parser.Parser.NormalizePath"/> must be used before setting</remarks>
+    public string? LowestFolderPath { get; set; }
+    /// <summary>
     /// The last time the folder for this series was scanned
     /// </summary>
     public DateTime LastFolderScanned { get; set; }
+    #region KavitaPlus
+    /// <summary>
+    /// Do not match the series with any external Metadata service. This will automatically opt it out of scrobbling.
+    /// </summary>
+    public bool DontMatch { get; set; }
+    /// <summary>
+    /// If the series was unable to match, it will be blacklisted until a manual metadata match overrides it
+    /// </summary>
+    public bool IsBlacklisted { get; set; }
+    #endregion
+
+    public string? CoverImage { get; set; }
+    public string PrimaryColor { get; set; }
+    public string SecondaryColor { get; set; }
+
+    public void ResetColorScape()
+    {
+        PrimaryColor = string.Empty;
+        SecondaryColor = string.Empty;
+    }
 }

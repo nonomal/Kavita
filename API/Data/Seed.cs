@@ -26,8 +26,8 @@ public static class Seed
     /// </summary>
     public static ImmutableArray<ServerSetting> DefaultSettings;
 
-    public static readonly ImmutableArray<SiteTheme> DefaultThemes = ImmutableArray.Create(
-        new List<SiteTheme>
+    public static readonly ImmutableArray<SiteTheme> DefaultThemes = [
+        ..new List<SiteTheme>
         {
             new()
             {
@@ -36,8 +36,10 @@ public static class Seed
                 Provider = ThemeProvider.System,
                 FileName = "dark.scss",
                 IsDefault = true,
+                Description = "Default theme shipped with Kavita"
             }
-        }.ToArray());
+        }.ToArray()
+    ];
 
     public static readonly ImmutableArray<AppUserDashboardStream> DefaultStreams = ImmutableArray.Create(
         new List<AppUserDashboardStream>
@@ -112,6 +114,14 @@ public static class Seed
         Order = 5,
         IsProvided = true,
         Visible = true
+    },
+    new AppUserSideNavStream()
+    {
+        Name = "browse-authors",
+        StreamType = SideNavStreamType.BrowseAuthors,
+        Order = 6,
+        IsProvided = true,
+        Visible = true
     });
 
 
@@ -181,10 +191,10 @@ public static class Seed
         var allUsers = await unitOfWork.UserRepository.GetAllUsersAsync(AppUserIncludes.SideNavStreams);
         foreach (var user in allUsers)
         {
-            if (user.SideNavStreams.Count != 0) continue;
             user.SideNavStreams ??= new List<AppUserSideNavStream>();
             foreach (var defaultStream in DefaultSideNavStreams)
             {
+                if (user.SideNavStreams.Any(s => s.Name == defaultStream.Name && s.StreamType == defaultStream.StreamType)) continue;
                 var newStream = new AppUserSideNavStream()
                 {
                     Name = defaultStream.Name,
@@ -250,6 +260,9 @@ public static class Seed
             new() {Key = ServerSettingKey.EmailEnableSsl, Value = "true"},
             new() {Key = ServerSettingKey.EmailSizeLimit, Value = 26_214_400 + string.Empty},
             new() {Key = ServerSettingKey.EmailCustomizedTemplates, Value = "false"},
+            new() {Key = ServerSettingKey.FirstInstallVersion, Value = BuildInfo.Version.ToString()},
+            new() {Key = ServerSettingKey.FirstInstallDate, Value = DateTime.UtcNow.ToString()},
+
         }.ToArray());
 
         foreach (var defaultSetting in DefaultSettings)

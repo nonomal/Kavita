@@ -10,15 +10,16 @@ import {
   ViewChild,
   ViewEncapsulation
 } from '@angular/core';
-import {FormGroup, FormControl, ReactiveFormsModule} from '@angular/forms';
+import {FormControl, FormGroup, ReactiveFormsModule} from '@angular/forms';
 import {NgbActiveModal, NgbModalModule} from '@ng-bootstrap/ng-bootstrap';
-import { ToastrService } from 'ngx-toastr';
-import { CollectionTag } from 'src/app/_models/collection-tag';
-import { ReadingList } from 'src/app/_models/reading-list';
-import { CollectionTagService } from 'src/app/_services/collection-tag.service';
+import {ToastrService} from 'ngx-toastr';
+import {UserCollection} from 'src/app/_models/collection-tag';
+import {ReadingList} from 'src/app/_models/reading-list';
+import {CollectionTagService} from 'src/app/_services/collection-tag.service';
 import {CommonModule} from "@angular/common";
 import {FilterPipe} from "../../../_pipes/filter.pipe";
-import {translate, TranslocoDirective, TranslocoService} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
+import {ScrobbleProvider} from "../../../_services/scrobbling.service";
 
 @Component({
   selector: 'app-bulk-add-to-collection',
@@ -31,27 +32,26 @@ import {translate, TranslocoDirective, TranslocoService} from "@ngneat/transloco
 })
 export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
 
+  private readonly modal = inject(NgbActiveModal);
+  private readonly collectionService = inject(CollectionTagService);
+  private readonly toastr = inject(ToastrService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  protected readonly MaxItems = 8;
+
   @Input({required: true}) title!: string;
   /**
    * Series Ids to add to Collection Tag
    */
   @Input() seriesIds: Array<number> = [];
+  @ViewChild('title') inputElem!: ElementRef<HTMLInputElement>;
 
   /**
    * All existing collections sorted by recent use date
    */
-  lists: Array<CollectionTag> = [];
+  lists: Array<UserCollection> = [];
   loading: boolean = false;
+  isCreating: boolean = false;
   listForm: FormGroup = new FormGroup({});
-
-  collectionTitleTrackby = (index: number, item: CollectionTag) => `${item.title}`;
-
-
-  @ViewChild('title') inputElem!: ElementRef<HTMLInputElement>;
-
-
-  constructor(private modal: NgbActiveModal, private collectionService: CollectionTagService,
-    private toastr: ToastrService, private readonly cdRef: ChangeDetectorRef) { }
 
   ngOnInit(): void {
 
@@ -60,8 +60,9 @@ export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
 
     this.loading = true;
     this.cdRef.markForCheck();
-    this.collectionService.allTags().subscribe(tags => {
-      this.lists = tags;
+    this.collectionService.allCollections(true).subscribe(tags => {
+      // Don't allow Smart Collections in
+      this.lists = tags.filter(t => t.source === ScrobbleProvider.Kavita);
       this.loading = false;
       this.cdRef.markForCheck();
     });
@@ -80,14 +81,18 @@ export class BulkAddToCollectionComponent implements OnInit, AfterViewInit {
   }
 
   create() {
+    if (this.isCreating) return;
     const tagName = this.listForm.value.title;
+    this.isCreating = true;
+    this.cdRef.markForCheck();
     this.collectionService.addByMultiple(0, this.seriesIds, tagName).subscribe(() => {
       this.toastr.success(translate('toasts.series-added-to-collection', {collectionName: tagName}));
+      this.isCreating = false;
       this.modal.close();
     });
   }
 
-  addToCollection(tag: CollectionTag) {
+  addToCollection(tag: UserCollection) {
     if (this.seriesIds.length === 0) return;
 
     this.collectionService.addByMultiple(tag.id, this.seriesIds, '').subscribe(() => {

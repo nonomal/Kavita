@@ -17,6 +17,9 @@ export class ServerService {
 
   constructor(private http: HttpClient) { }
 
+  getVersion(apiKey: string) {
+    return this.http.get<string>(this.baseUrl + 'plugin/version?apiKey=' + apiKey, TextResonse);
+  }
 
   getServerInfo() {
     return this.http.get<ServerInfoSlim>(this.baseUrl + 'server/server-info-slim');
@@ -30,12 +33,20 @@ export class ServerService {
     return this.http.post(this.baseUrl + 'server/cleanup-want-to-read', {});
   }
 
+  cleanup() {
+    return this.http.post(this.baseUrl + 'server/cleanup', {});
+  }
+
   backupDatabase() {
     return this.http.post(this.baseUrl + 'server/backup-db', {});
   }
 
   analyzeFiles() {
     return this.http.post(this.baseUrl + 'server/analyze-files', {});
+  }
+
+  syncThemes() {
+    return this.http.post(this.baseUrl + 'server/sync-themes', {});
   }
 
   checkForUpdate() {
@@ -51,8 +62,8 @@ export class ServerService {
     return this.http.get<UpdateVersionEvent>(this.baseUrl + 'server/check-for-updates', {});
   }
 
-  getChangelog() {
-    return this.http.get<UpdateVersionEvent[]>(this.baseUrl + 'server/changelog', {});
+  getChangelog(count: number = 0) {
+    return this.http.get<UpdateVersionEvent[]>(this.baseUrl + 'server/changelog?count=' + count, {});
   }
 
   getRecurringJobs() {

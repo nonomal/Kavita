@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import {FormControl, FormGroup, ReactiveFormsModule} from '@angular/forms';
 import {FilterStatement} from '../../../_models/metadata/v2/filter-statement';
-import {BehaviorSubject, distinctUntilChanged, filter, map, Observable, of, startWith, switchMap} from 'rxjs';
+import {BehaviorSubject, distinctUntilChanged, filter, map, Observable, of, startWith, switchMap, tap} from 'rxjs';
 import {MetadataService} from 'src/app/_services/metadata.service';
 import {mangaFormatFilters} from 'src/app/_models/metadata/series-filter';
 import {PersonRole} from 'src/app/_models/metadata/person';
@@ -19,7 +19,7 @@ import {LibraryService} from 'src/app/_services/library.service';
 import {CollectionTagService} from 'src/app/_services/collection-tag.service';
 import {FilterComparison} from 'src/app/_models/metadata/v2/filter-comparison';
 import {allFields, FilterField} from 'src/app/_models/metadata/v2/filter-field';
-import {AsyncPipe, NgForOf, NgIf, NgSwitch, NgSwitchCase, NgTemplateOutlet} from "@angular/common";
+import {AsyncPipe, NgTemplateOutlet} from "@angular/common";
 import {FilterFieldPipe} from "../../../_pipes/filter-field.pipe";
 import {FilterComparisonPipe} from "../../../_pipes/filter-comparison.pipe";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
@@ -32,7 +32,7 @@ import {
   NgbInputDatepicker,
   NgbTooltip
 } from "@ng-bootstrap/ng-bootstrap";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 
 enum PredicateType {
   Text = 1,
@@ -55,16 +55,23 @@ const unitLabels: Map<FilterField, FilterRowUi> = new Map([
     [FilterField.ReadingDate, new FilterRowUi('unit-reading-date')],
     [FilterField.AverageRating, new FilterRowUi('unit-average-rating')],
     [FilterField.ReadProgress, new FilterRowUi('unit-reading-progress')],
+    [FilterField.UserRating, new FilterRowUi('unit-user-rating')],
+    [FilterField.ReadLast, new FilterRowUi('unit-read-last')],
 ]);
 
 const StringFields = [FilterField.SeriesName, FilterField.Summary, FilterField.Path, FilterField.FilePath];
-const NumberFields = [FilterField.ReadTime, FilterField.ReleaseYear, FilterField.ReadProgress, FilterField.UserRating, FilterField.AverageRating];
-const DropdownFields = [FilterField.PublicationStatus, FilterField.Languages, FilterField.AgeRating,
-    FilterField.Translators, FilterField.Characters, FilterField.Publisher,
-    FilterField.Editor, FilterField.CoverArtist, FilterField.Letterer,
-    FilterField.Colorist, FilterField.Inker, FilterField.Penciller,
-    FilterField.Writers, FilterField.Genres, FilterField.Libraries,
-    FilterField.Formats, FilterField.CollectionTags, FilterField.Tags
+const NumberFields = [
+  FilterField.ReadTime, FilterField.ReleaseYear, FilterField.ReadProgress,
+  FilterField.UserRating, FilterField.AverageRating, FilterField.ReadLast
+];
+const DropdownFields = [
+  FilterField.PublicationStatus, FilterField.Languages, FilterField.AgeRating,
+  FilterField.Translators, FilterField.Characters, FilterField.Publisher,
+  FilterField.Editor, FilterField.CoverArtist, FilterField.Letterer,
+  FilterField.Colorist, FilterField.Inker, FilterField.Penciller,
+  FilterField.Writers, FilterField.Genres, FilterField.Libraries,
+  FilterField.Formats, FilterField.CollectionTags, FilterField.Tags,
+  FilterField.Imprint, FilterField.Team, FilterField.Location
 ];
 const BooleanFields = [FilterField.WantToRead];
 const DateFields = [FilterField.ReadingDate];
@@ -77,6 +84,16 @@ const DropdownFieldsThatIncludeNumberComparisons = [
 ];
 const NumberFieldsThatIncludeDateComparisons = [
   FilterField.ReleaseYear
+];
+
+const FieldsThatShouldIncludeIsEmpty = [
+  FilterField.Summary, FilterField.UserRating, FilterField.Genres,
+  FilterField.CollectionTags, FilterField.Tags, FilterField.ReleaseYear,
+  FilterField.Translators, FilterField.Characters, FilterField.Publisher,
+  FilterField.Editor, FilterField.CoverArtist, FilterField.Letterer,
+  FilterField.Colorist, FilterField.Inker, FilterField.Penciller,
+  FilterField.Writers, FilterField.Imprint, FilterField.Team,
+  FilterField.Location,
 ];
 
 const StringComparisons = [
@@ -117,16 +134,9 @@ const BooleanComparisons = [
     AsyncPipe,
     FilterFieldPipe,
     FilterComparisonPipe,
-    NgSwitch,
-    NgSwitchCase,
-    NgForOf,
-    NgIf,
     Select2Module,
-    NgTemplateOutlet,
-    TagBadgeComponent,
     NgbTooltip,
     TranslocoDirective,
-    NgbDatepicker,
     NgbInputDatepicker
   ],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -145,6 +155,8 @@ export class MetadataFilterRowComponent implements OnInit {
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
   private readonly dateParser = inject(NgbDateParserFormatter);
+
+  protected readonly FilterComparison = FilterComparison;
 
   formGroup: FormGroup = new FormGroup({
     'comparison': new FormControl<FilterComparison>(FilterComparison.Equal, []),
@@ -192,9 +204,11 @@ export class MetadataFilterRowComponent implements OnInit {
     );
 
 
-    this.formGroup!.valueChanges.pipe(distinctUntilChanged(), takeUntilDestroyed(this.destroyRef)).subscribe(_ => {
-      this.propagateFilterUpdate();
-    });
+    this.formGroup!.valueChanges.pipe(
+      distinctUntilChanged(),
+      tap(_ => this.propagateFilterUpdate()),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe();
 
     this.loaded = true;
     this.cdRef.markForCheck();
@@ -220,7 +234,10 @@ export class MetadataFilterRowComponent implements OnInit {
       stmt.value = stmt.value + '';
     }
 
-    if (!stmt.value && (![FilterField.SeriesName, FilterField.Summary].includes(stmt.field)  && !BooleanFields.includes(stmt.field))) return;
+    if (stmt.comparison !== FilterComparison.IsEmpty) {
+      if (!stmt.value && (![FilterField.SeriesName, FilterField.Summary].includes(stmt.field) && !BooleanFields.includes(stmt.field))) return;
+    }
+
     this.filterStatement.emit(stmt);
   }
 
@@ -286,7 +303,7 @@ export class MetadataFilterRowComponent implements OnInit {
             return {value: status.id, label: status.title}
           })));
         case FilterField.CollectionTags:
-          return this.collectionTagService.allTags().pipe(map(statuses => statuses.map(status => {
+          return this.collectionTagService.allCollections().pipe(map(statuses => statuses.map(status => {
             return {value: status.id, label: status.title}
           })));
         case FilterField.Characters: return this.getPersonOptions(PersonRole.Character);
@@ -297,6 +314,9 @@ export class MetadataFilterRowComponent implements OnInit {
         case FilterField.Letterer: return this.getPersonOptions(PersonRole.Letterer);
         case FilterField.Penciller: return this.getPersonOptions(PersonRole.Penciller);
         case FilterField.Publisher: return this.getPersonOptions(PersonRole.Publisher);
+        case FilterField.Imprint: return this.getPersonOptions(PersonRole.Imprint);
+        case FilterField.Team: return this.getPersonOptions(PersonRole.Team);
+        case FilterField.Location: return this.getPersonOptions(PersonRole.Location);
         case FilterField.Translators: return this.getPersonOptions(PersonRole.Translator);
         case FilterField.Writers: return this.getPersonOptions(PersonRole.Writer);
       }
@@ -313,8 +333,15 @@ export class MetadataFilterRowComponent implements OnInit {
   handleFieldChange(val: string) {
     const inputVal = parseInt(val, 10) as FilterField;
 
+
     if (StringFields.includes(inputVal)) {
-      this.validComparisons$.next(StringComparisons);
+      let comps = [...StringComparisons];
+
+      if (FieldsThatShouldIncludeIsEmpty.includes(inputVal)) {
+        comps.push(FilterComparison.IsEmpty);
+      }
+
+      this.validComparisons$.next([...new Set(comps)]);
       this.predicateType$.next(PredicateType.Text);
 
       if (this.loaded) {
@@ -326,10 +353,15 @@ export class MetadataFilterRowComponent implements OnInit {
 
     if (NumberFields.includes(inputVal)) {
       const comps = [...NumberComparisons];
+
       if (NumberFieldsThatIncludeDateComparisons.includes(inputVal)) {
         comps.push(...DateComparisons);
       }
-      this.validComparisons$.next(comps);
+      if (FieldsThatShouldIncludeIsEmpty.includes(inputVal)) {
+        comps.push(FilterComparison.IsEmpty);
+      }
+
+      this.validComparisons$.next([...new Set(comps)]);
       this.predicateType$.next(PredicateType.Number);
       if (this.loaded) {
         this.formGroup.get('filterValue')?.patchValue(0);
@@ -339,7 +371,12 @@ export class MetadataFilterRowComponent implements OnInit {
     }
 
     if (DateFields.includes(inputVal)) {
-      this.validComparisons$.next(DateComparisons);
+      const comps = [...DateComparisons];
+      if (FieldsThatShouldIncludeIsEmpty.includes(inputVal)) {
+        comps.push(FilterComparison.IsEmpty);
+      }
+
+      this.validComparisons$.next([...new Set(comps)]);
       this.predicateType$.next(PredicateType.Date);
 
       if (this.loaded) {
@@ -350,7 +387,13 @@ export class MetadataFilterRowComponent implements OnInit {
     }
 
     if (BooleanFields.includes(inputVal)) {
-      this.validComparisons$.next(BooleanComparisons);
+      let comps = [...DateComparisons];
+      if (FieldsThatShouldIncludeIsEmpty.includes(inputVal)) {
+        comps.push(FilterComparison.IsEmpty);
+      }
+
+
+      this.validComparisons$.next([...new Set(comps)]);
       this.predicateType$.next(PredicateType.Boolean);
 
       if (this.loaded) {
@@ -368,7 +411,11 @@ export class MetadataFilterRowComponent implements OnInit {
       if (DropdownFieldsWithoutMustContains.includes(inputVal)) {
         comps = comps.filter(c => c !== FilterComparison.MustContains);
       }
-      this.validComparisons$.next(comps);
+      if (FieldsThatShouldIncludeIsEmpty.includes(inputVal)) {
+        comps.push(FilterComparison.IsEmpty);
+      }
+
+      this.validComparisons$.next([...new Set(comps)]);
       this.predicateType$.next(PredicateType.Dropdown);
       if (this.loaded) {
         this.formGroup.get('filterValue')?.patchValue(0);
@@ -380,11 +427,10 @@ export class MetadataFilterRowComponent implements OnInit {
 
 
 
-  onDateSelect(event: NgbDate) {
+  onDateSelect(_: NgbDate) {
     this.propagateFilterUpdate();
   }
   updateIfDateFilled() {
     this.propagateFilterUpdate();
   }
-
 }

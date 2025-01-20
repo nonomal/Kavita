@@ -4,8 +4,8 @@ import { PieDataItem } from '../../_models/pie-data-item';
 import { CompactNumberPipe } from '../../../_pipes/compact-number.pipe';
 import { ImageComponent } from '../../../shared/image/image.component';
 import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap';
-import { NgIf, NgFor, NgClass, AsyncPipe } from '@angular/common';
-import {TranslocoDirective} from "@ngneat/transloco";
+import { NgClass, AsyncPipe } from '@angular/common';
+import {TranslocoDirective} from "@jsverse/transloco";
 
 @Component({
     selector: 'app-stat-list',
@@ -13,7 +13,7 @@ import {TranslocoDirective} from "@ngneat/transloco";
     styleUrls: ['./stat-list.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: true,
-    imports: [NgIf, NgbTooltip, NgFor, NgClass, ImageComponent, AsyncPipe, CompactNumberPipe, TranslocoDirective]
+    imports: [NgbTooltip, NgClass, ImageComponent, AsyncPipe, CompactNumberPipe, TranslocoDirective]
 })
 export class StatListComponent {
 

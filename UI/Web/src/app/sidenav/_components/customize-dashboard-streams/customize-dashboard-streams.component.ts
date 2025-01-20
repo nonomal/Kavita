@@ -10,7 +10,7 @@ import {DashboardService} from "../../../_services/dashboard.service";
 import {FilterService} from "../../../_services/filter.service";
 import {NgbActiveModal} from "@ng-bootstrap/ng-bootstrap";
 import {forkJoin} from "rxjs";
-import {TranslocoDirective} from "@ngneat/transloco";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {FormControl, FormGroup, ReactiveFormsModule} from "@angular/forms";
 import {FilterPipe} from "../../../_pipes/filter.pipe";
 import {Breakpoint, UtilityService} from "../../../shared/_services/utility.service";
@@ -25,15 +25,14 @@ import {Breakpoint, UtilityService} from "../../../shared/_services/utility.serv
 })
 export class CustomizeDashboardStreamsComponent {
 
-  items: DashboardStream[] = [];
-  smartFilters: SmartFilter[] = [];
-  accessibilityMode: boolean = false;
-
   private readonly dashboardService = inject(DashboardService);
   private readonly filterService = inject(FilterService);
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly utilityService = inject(UtilityService);
 
+  items: DashboardStream[] = [];
+  smartFilters: SmartFilter[] = [];
+  accessibilityMode: boolean = false;
   listForm: FormGroup = new FormGroup({
     'filterQuery': new FormControl('', [])
   });
@@ -47,7 +46,7 @@ export class CustomizeDashboardStreamsComponent {
     this.cdRef.markForCheck();
   }
 
-  constructor(public modal: NgbActiveModal) {
+  constructor() {
     forkJoin([this.dashboardService.getDashboardStreams(false), this.filterService.getAllFilters()]).subscribe(results => {
       this.items = results[0];
 

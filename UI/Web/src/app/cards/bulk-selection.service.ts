@@ -4,7 +4,7 @@ import {ReplaySubject} from 'rxjs';
 import {filter} from 'rxjs/operators';
 import {Action, ActionFactoryService, ActionItem} from '../_services/action-factory.service';
 
-type DataSource = 'volume' | 'chapter' | 'special' | 'series' | 'bookmark' | 'sideNavStream';
+type DataSource = 'volume' | 'chapter' | 'special' | 'series' | 'bookmark' | 'sideNavStream' | 'collection' | 'readingList';
 
 /**
  * Responsible for handling selections on cards. Can handle multiple card sources next to each other in different loops.
@@ -138,11 +138,14 @@ export class BulkSelectionService {
     return ret;
   }
 
+  /**
+   * Returns the appropriate set of supported actions for the given mix of cards
+   * @param callback
+   */
   getActions(callback: (action: ActionItem<any>, data: any) => void) {
-    // checks if series is present. If so, returns only series actions
-    // else returns volume/chapter items
     const allowedActions = [Action.AddToReadingList, Action.MarkAsRead, Action.MarkAsUnread, Action.AddToCollection,
       Action.Delete, Action.AddToWantToReadList, Action.RemoveFromWantToReadList];
+
     if (Object.keys(this.selectedCards).filter(item => item === 'series').length > 0) {
       return this.applyFilterToList(this.actionFactory.getSeriesActions(callback), allowedActions);
     }
@@ -155,7 +158,16 @@ export class BulkSelectionService {
       return this.applyFilterToList(this.actionFactory.getSideNavStreamActions(callback), [Action.MarkAsInvisible, Action.MarkAsVisible]);
     }
 
-    return this.applyFilterToList(this.actionFactory.getVolumeActions(callback), allowedActions);
+    if (Object.keys(this.selectedCards).filter(item => item === 'collection').length > 0) {
+      return this.applyFilterToList(this.actionFactory.getCollectionTagActions(callback), [Action.Promote, Action.UnPromote, Action.Delete]);
+    }
+
+    if (Object.keys(this.selectedCards).filter(item => item === 'readingList').length > 0) {
+      return this.applyFilterToList(this.actionFactory.getReadingListActions(callback), [Action.Promote, Action.UnPromote, Action.Delete]);
+    }
+
+    // Chapter/Volume
+    return this.applyFilterToList(this.actionFactory.getVolumeActions(callback), [...allowedActions, Action.SendTo]);
   }
 
   private debugLog(message: string, extraData?: any) {
@@ -169,18 +181,25 @@ export class BulkSelectionService {
   }
 
   private applyFilter(action: ActionItem<any>, allowedActions: Array<Action>) {
+    let hasValidAction = false;
 
-    let ret = false;
+    // Check if the current action is valid or a submenu
     if (action.action === Action.Submenu || allowedActions.includes(action.action)) {
-      // Do something
-      ret = true;
+      hasValidAction = true;
     }
 
-    if (action.children === null || action.children?.length === 0) return ret;
+    // If the action has children, filter them recursively
+    if (action.children && action.children.length > 0) {
+      action.children = action.children.filter((childAction) => this.applyFilter(childAction, allowedActions));
 
-    action.children = action.children.filter((childAction) => this.applyFilter(childAction, allowedActions));
+      // If no valid children remain, the parent submenu should not be considered valid
+      if (action.children.length === 0 && action.action === Action.Submenu) {
+        hasValidAction = false;
+      }
+    }
 
-    return ret;
+    // Return whether this action or its children are valid
+    return hasValidAction;
   }
 
 	private applyFilterToList(list: Array<ActionItem<any>>, allowedActions: Array<Action>): Array<ActionItem<any>> {

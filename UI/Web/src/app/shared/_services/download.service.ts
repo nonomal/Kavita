@@ -12,20 +12,21 @@ import {
   tap,
   finalize,
   of,
-  filter, Subject,
+  filter,
 } from 'rxjs';
 import { download, Download } from '../_models/download';
 import { PageBookmark } from 'src/app/_models/readers/page-bookmark';
 import {switchMap, take, takeWhile, throttleTime} from 'rxjs/operators';
 import { AccountService } from 'src/app/_services/account.service';
 import { BytesPipe } from 'src/app/_pipes/bytes.pipe';
-import {translate} from "@ngneat/transloco";
+import {translate} from "@jsverse/transloco";
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import {SAVER, Saver} from "../../_providers/saver.provider";
 import {UtilityService} from "./utility.service";
-import {CollectionTag} from "../../_models/collection-tag";
+import {UserCollection} from "../../_models/collection-tag";
 import {RecentlyAddedItem} from "../../_models/recently-added-item";
 import {NextExpectedChapter} from "../../_models/series-detail/next-expected-chapter";
+import {BrowsePerson} from "../../_models/person/browse-person";
 
 export const DEBOUNCE_TIME = 100;
 
@@ -71,6 +72,10 @@ export class DownloadService {
    * Size in bytes in which to inform the user for confirmation before download starts. Defaults to 100 MB.
    */
   public SIZE_WARNING = 104_857_600;
+  /**
+   * Sie in bytes in which to inform the user that anything above may fail on iOS due to device limits. (200MB)
+   */
+  private IOS_SIZE_WARNING = 209_715_200;
 
   private downloadsSource: BehaviorSubject<DownloadEvent[]> = new BehaviorSubject<DownloadEvent[]>([]);
   /**
@@ -115,7 +120,7 @@ export class DownloadService {
       case 'volume':
         return (downloadEntity as Volume).minNumber + '';
       case 'chapter':
-        return (downloadEntity as Chapter).number;
+        return (downloadEntity as Chapter).minNumber + '';
       case 'bookmark':
         return '';
       case 'logs':
@@ -216,6 +221,7 @@ export class DownloadService {
     );
   }
 
+
   private getIdKey(entity: Chapter | Volume) {
     if (this.utilityService.isVolume(entity)) return 'volumeId';
     if (this.utilityService.isChapter(entity)) return 'chapterId';
@@ -290,41 +296,18 @@ export class DownloadService {
 
   private downloadChapter(chapter: Chapter) {
     return this.downloadEntity(chapter);
-
-    // const downloadType = 'chapter';
-    // const subtitle = this.downloadSubtitle(downloadType, chapter);
-    // return this.httpClient.get(this.baseUrl + 'download/chapter?chapterId=' + chapter.id,
-    //             {observe: 'events', responseType: 'blob', reportProgress: true}
-    //     ).pipe(
-    //       throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
-    //       download((blob, filename) => {
-    //         this.save(blob, decodeURIComponent(filename));
-    //       }),
-    //       tap((d) => this.updateDownloadState(d, downloadType, subtitle, chapter.id)),
-    //       finalize(() => this.finalizeDownloadState(downloadType, subtitle))
-    //     );
   }
 
   private downloadVolume(volume: Volume) {
     return this.downloadEntity(volume);
-    // const downloadType = 'volume';
-    // const subtitle = this.downloadSubtitle(downloadType, volume);
-    // return this.httpClient.get(this.baseUrl + 'download/volume?volumeId=' + volume.id,
-    //                   {observe: 'events', responseType: 'blob', reportProgress: true}
-    //         ).pipe(
-    //           throttleTime(DEBOUNCE_TIME, asyncScheduler, { leading: true, trailing: true }),
-    //           download((blob, filename) => {
-    //             this.save(blob, decodeURIComponent(filename));
-    //           }),
-    //           tap((d) => this.updateDownloadState(d, downloadType, subtitle, volume.id)),
-    //           finalize(() => this.finalizeDownloadState(downloadType, subtitle))
-    //         );
   }
 
   private async confirmSize(size: number, entityType: DownloadEntityType) {
+    const showIosWarning = size > this.IOS_SIZE_WARNING && /iPad|iPhone|iPod/.test(navigator.userAgent);
     return (size < this.SIZE_WARNING ||
       await this.confirmService.confirm(translate('toasts.confirm-download-size',
-        {entityType: translate('entity-type.' + entityType), size: bytesPipe.transform(size)})));
+        {entityType: translate('entity-type.' + entityType), size: bytesPipe.transform(size)})
+      + (!showIosWarning ? '' : '<br/><br/>' + translate('toasts.confirm-download-size-ios'))));
   }
 
   private downloadBookmarks(bookmarks: PageBookmark[]) {
@@ -378,24 +361,28 @@ export class DownloadService {
     }
   }
 
-  mapToEntityType(events: DownloadEvent[], entity: Series | Volume | Chapter | CollectionTag | PageBookmark | RecentlyAddedItem | NextExpectedChapter) {
+  mapToEntityType(events: DownloadEvent[], entity: Series | Volume | Chapter | UserCollection | PageBookmark | RecentlyAddedItem | NextExpectedChapter | BrowsePerson) {
     if(this.utilityService.isSeries(entity)) {
       return events.find(e => e.entityType === 'series' && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('series', (entity as Series))) || null;
     }
+
     if(this.utilityService.isVolume(entity)) {
       return events.find(e => e.entityType === 'volume' && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('volume', (entity as Volume))) || null;
     }
+
     if(this.utilityService.isChapter(entity)) {
       return events.find(e => e.entityType === 'chapter'  && e.id == entity.id
         && e.subTitle === this.downloadSubtitle('chapter', (entity as Chapter))) || null;
     }
+
     // Is PageBookmark[]
     if(entity.hasOwnProperty('length')) {
       return events.find(e => e.entityType === 'bookmark'
         && e.subTitle === this.downloadSubtitle('bookmark', [(entity as PageBookmark)])) || null;
     }
+
     return null;
   }
 }

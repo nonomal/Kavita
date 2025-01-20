@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using API.Data;
 using API.Data.Repositories;
 using API.DTOs.Account;
+using API.DTOs.KavitaPlus.Account;
 using API.DTOs.Scrobbling;
 using API.Entities.Scrobble;
 using API.Extensions;
@@ -53,12 +54,29 @@ public class ScrobblingController : BaseApiController
     }
 
     /// <summary>
+    /// Get the current user's MAL token & username
+    /// </summary>
+    /// <returns></returns>
+    [HttpGet("mal-token")]
+    public async Task<ActionResult<MalUserInfoDto>> GetMalToken()
+    {
+        var user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(User.GetUsername());
+        if (user == null) return Unauthorized();
+
+        return Ok(new MalUserInfoDto()
+        {
+            Username = user.MalUserName,
+            AccessToken = user.MalAccessToken
+        });
+    }
+
+    /// <summary>
     /// Update the current user's AniList token
     /// </summary>
     /// <param name="dto"></param>
-    /// <returns></returns>
+    /// <returns>True if the token was new or not</returns>
     [HttpPost("update-anilist-token")]
-    public async Task<ActionResult> UpdateAniListToken(AniListUpdateDto dto)
+    public async Task<ActionResult<bool>> UpdateAniListToken(AniListUpdateDto dto)
     {
         var user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(User.GetUsername());
         if (user == null) return Unauthorized();
@@ -68,10 +86,38 @@ public class ScrobblingController : BaseApiController
         _unitOfWork.UserRepository.Update(user);
         await _unitOfWork.CommitAsync();
 
-        if (isNewToken)
-        {
-            BackgroundJob.Enqueue(() => _scrobblingService.CreateEventsFromExistingHistory(user.Id));
-        }
+        return Ok(isNewToken);
+    }
+
+    /// <summary>
+    /// Update the current user's MAL token (Client ID) and Username
+    /// </summary>
+    /// <param name="dto"></param>
+    /// <returns>True if the token was new or not</returns>
+    [HttpPost("update-mal-token")]
+    public async Task<ActionResult<bool>> UpdateMalToken(MalUserInfoDto dto)
+    {
+        var user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(User.GetUsername());
+        if (user == null) return Unauthorized();
+
+        var isNewToken = string.IsNullOrEmpty(user.MalAccessToken);
+        user.MalAccessToken = dto.AccessToken;
+        user.MalUserName = dto.Username;
+
+        _unitOfWork.UserRepository.Update(user);
+        await _unitOfWork.CommitAsync();
+
+        return Ok(isNewToken);
+    }
+
+    /// <summary>
+    /// When a user request to generate scrobble events from history. Should only be ran once per user.
+    /// </summary>
+    /// <returns></returns>
+    [HttpPost("generate-scrobble-events")]
+    public ActionResult GenerateScrobbleEvents()
+    {
+        BackgroundJob.Enqueue(() => _scrobblingService.CreateEventsFromExistingHistory(User.GetUserId()));
 
         return Ok();
     }

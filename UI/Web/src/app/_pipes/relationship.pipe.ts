@@ -1,6 +1,6 @@
 import {inject, Pipe, PipeTransform} from '@angular/core';
 import { RelationKind } from '../_models/series-detail/relation-kind';
-import {TranslocoService} from "@ngneat/transloco";
+import {TranslocoService} from "@jsverse/transloco";
 
 @Pipe({
   name: 'relationship',
@@ -39,6 +39,8 @@ export class RelationshipPipe implements PipeTransform {
         return this.translocoService.translate('relationship-pipe.parent');
       case RelationKind.Edition:
         return this.translocoService.translate('relationship-pipe.edition');
+      case RelationKind.Annual:
+        return this.translocoService.translate('relationship-pipe.annual');
       default:
         return '';
     }

@@ -6,7 +6,7 @@ using API.Entities.Metadata;
 
 namespace API.Entities;
 
-public class Series : IEntityDate, IHasReadTimeEstimate
+public class Series : IEntityDate, IHasReadTimeEstimate, IHasCoverImage
 {
     public int Id { get; set; }
     /// <summary>
@@ -38,7 +38,7 @@ public class Series : IEntityDate, IHasReadTimeEstimate
     /// </summary>
     public DateTime Created { get; set; }
     /// <summary>
-    /// Whenever a modification occurs. Ie) New volumes, removed volumes, title update, etc
+    /// Whenever a modification occurs. ex: New volumes, removed volumes, title update, etc
     /// </summary>
     public DateTime LastModified { get; set; }
 
@@ -64,6 +64,11 @@ public class Series : IEntityDate, IHasReadTimeEstimate
     /// <remarks><see cref="Services.Tasks.Scanner.Parser.Parser.NormalizePath"/> must be used before setting</remarks>
     public string? FolderPath { get; set; }
     /// <summary>
+    /// Lowest path (that is under library root) that contains all files for the series.
+    /// </summary>
+    /// <remarks><see cref="Services.Tasks.Scanner.Parser.Parser.NormalizePath"/> must be used before setting</remarks>
+    public string? LowestFolderPath { get; set; }
+    /// <summary>
     /// Last time the folder was scanned
     /// </summary>
     public DateTime LastFolderScanned { get; set; }
@@ -75,6 +80,9 @@ public class Series : IEntityDate, IHasReadTimeEstimate
     /// The type of all the files attached to this series
     /// </summary>
     public MangaFormat Format { get; set; } = MangaFormat.Unknown;
+
+    public string PrimaryColor { get; set; } = string.Empty;
+    public string SecondaryColor { get; set; } = string.Empty;
 
     public bool SortNameLocked { get; set; }
     public bool LocalizedNameLocked { get; set; }
@@ -93,13 +101,25 @@ public class Series : IEntityDate, IHasReadTimeEstimate
 
     public int MinHoursToRead { get; set; }
     public int MaxHoursToRead { get; set; }
-    public int AvgHoursToRead { get; set; }
+    public float AvgHoursToRead { get; set; }
+
+    #region KavitaPlus
+    /// <summary>
+    /// Do not match the series with any external Metadata service. This will automatically opt it out of scrobbling.
+    /// </summary>
+    public bool DontMatch { get; set; }
+    /// <summary>
+    /// If the series was unable to match, it will be blacklisted until a manual metadata match overrides it
+    /// </summary>
+    public bool IsBlacklisted { get; set; }
+    #endregion
 
     public SeriesMetadata Metadata { get; set; } = null!;
     public ExternalSeriesMetadata ExternalSeriesMetadata { get; set; } = null!;
 
     public ICollection<AppUserRating> Ratings { get; set; } = null!;
     public ICollection<AppUserProgress> Progress { get; set; } = null!;
+    public ICollection<AppUserCollection> Collections { get; set; } = null!;
 
     /// <summary>
     /// Relations to other Series, like Sequels, Prequels, etc
@@ -107,6 +127,8 @@ public class Series : IEntityDate, IHasReadTimeEstimate
     /// <remarks>1 to Many relationship</remarks>
     public ICollection<SeriesRelation> Relations { get; set; } = null!;
     public ICollection<SeriesRelation> RelationOf { get; set; } = null!;
+
+
 
 
     // Relationships
@@ -125,5 +147,29 @@ public class Series : IEntityDate, IHasReadTimeEstimate
     {
         LastChapterAdded = DateTime.Now;
         LastChapterAddedUtc = DateTime.UtcNow;
+    }
+
+    public bool MatchesSeriesByName(string nameNormalized, string localizedNameNormalized)
+    {
+        return NormalizedName == nameNormalized ||
+               NormalizedLocalizedName == nameNormalized ||
+               NormalizedName == localizedNameNormalized ||
+               NormalizedLocalizedName == localizedNameNormalized;
+    }
+
+    public void ResetColorScape()
+    {
+        PrimaryColor = string.Empty;
+        SecondaryColor = string.Empty;
+    }
+
+    /// <summary>
+    /// Is this Series capable of Scrobbling
+    /// </summary>
+    /// <remarks>This includes if there is no Match/Manual Match needed, the series is blacklisted, or has a NoMatch</remarks>
+    /// <returns></returns>
+    public bool WillScrobble()
+    {
+        return !IsBlacklisted && !DontMatch;
     }
 }

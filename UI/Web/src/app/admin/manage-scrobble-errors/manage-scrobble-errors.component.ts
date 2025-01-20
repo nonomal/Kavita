@@ -10,7 +10,6 @@ import {
   QueryList,
   ViewChildren
 } from '@angular/core';
-import {CommonModule} from '@angular/common';
 import {FormControl, FormGroup, ReactiveFormsModule} from "@angular/forms";
 import {compare, SortableHeader, SortEvent} from "../../_single-module/table/_directives/sortable-header.directive";
 import {KavitaMediaError} from "../_models/media-error";
@@ -25,16 +24,19 @@ import {EditSeriesModalComponent} from "../../cards/_modals/edit-series-modal/ed
 import {NgbModal} from "@ng-bootstrap/ng-bootstrap";
 import {FilterPipe} from "../../_pipes/filter.pipe";
 import {LoadingComponent} from "../../shared/loading/loading.component";
-import {TranslocoModule} from "@ngneat/transloco";
+import {TranslocoModule} from "@jsverse/transloco";
 import {DefaultDatePipe} from "../../_pipes/default-date.pipe";
 import {DefaultValuePipe} from "../../_pipes/default-value.pipe";
-import {TranslocoLocaleModule} from "@ngneat/transloco-locale";
+import {TranslocoLocaleModule} from "@jsverse/transloco-locale";
 import {UtcToLocalTimePipe} from "../../_pipes/utc-to-local-time.pipe";
+import {DefaultModalOptions} from "../../_models/default-modal-options";
+import {ColumnMode, NgxDatatableModule} from "@siemens/ngx-datatable";
+import {DevicePlatformPipe} from "../../_pipes/device-platform.pipe";
 
 @Component({
   selector: 'app-manage-scrobble-errors',
   standalone: true,
-    imports: [CommonModule, ReactiveFormsModule, FilterPipe, LoadingComponent, SortableHeader, TranslocoModule, DefaultDatePipe, DefaultValuePipe, TranslocoLocaleModule, UtcToLocalTimePipe],
+  imports: [ReactiveFormsModule, FilterPipe, LoadingComponent, SortableHeader, TranslocoModule, DefaultDatePipe, DefaultValuePipe, TranslocoLocaleModule, UtcToLocalTimePipe, DevicePlatformPipe, NgxDatatableModule],
   templateUrl: './manage-scrobble-errors.component.html',
   styleUrls: ['./manage-scrobble-errors.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -112,8 +114,11 @@ export class ManageScrobbleErrorsComponent implements OnInit {
 
   editSeries(seriesId: number) {
     this.seriesService.getSeries(seriesId).subscribe(series => {
-      const modalRef = this.modalService.open(EditSeriesModalComponent, {  size: 'xl' });
+      const modalRef = this.modalService.open(EditSeriesModalComponent, DefaultModalOptions);
       modalRef.componentInstance.series = series;
     });
   }
+
+  protected readonly filter = filter;
+  protected readonly ColumnMode = ColumnMode;
 }

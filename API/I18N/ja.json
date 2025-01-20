@@ -3,7 +3,6 @@
     "invalid-token": "無効トークン",
     "invalid-password": "無効なパスワード",
     "validate-email": "メールの検証中に問題が発生しました: {0}",
-    "bad-credentials": "資格情報が正しくありません",
     "confirm-email": "最初にメールを確認する必要があります",
     "disabled-account": "あなたのアカウントは無効になりました。サーバー管理者に連絡してください。",
     "locked-out": "認証試行が多すぎるとロックアウトされました。 10分ほどお待ちください。",
@@ -26,7 +25,7 @@
     "not-accessible": "サーバーが外部からアクセスできません",
     "email-sent": "Eメールの送信",
     "generic-password-update": "新しいパスワードの確認時に予期しないエラーが発生しました",
-    "user-already-confirmed": "ユーザーは既に確定しています",
+    "user-already-confirmed": "ユーザーは確認済みです",
     "user-migration-needed": "このユーザーは移行する必要があります。移行フローを実行するために、ログアウトしてからログインしてください",
     "generic-user-update": "ユーザーの更新時に例外が発生しました",
     "generic-user-email-update": "ユーザーの電子メールを更新できません。ログを確認してください。",
@@ -180,5 +179,10 @@
     "scrobble-bad-payload": "Scrobbleプロバイダからの悪いペイロード",
     "generic-create-temp-archive": "一時アーカイブの作成中に問題が発生しました",
     "user-no-access-library-from-series": "ユーザーは、このシリーズが所属するライブラリにアクセス権限がありません",
-    "collection-tag-duplicate": "この名前のコレクションは既に存在しています"
+    "collection-tag-duplicate": "この名前のコレクションは既に存在しています",
+    "account-email-invalid": "管理者アカウントに登録されている電子メールは有効な電子メールではありません。 テストメールを送信できませんでした。",
+    "check-updates": "アップデートをチェックする",
+    "license-check": "ライセンスを確認",
+    "collection-already-exists": "コレクションは既に存在しています",
+    "email-settings-invalid": "メール設定に不足している情報があります。すべてのメール設定が保存されていることを確認してください。"
 }

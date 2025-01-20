@@ -23,6 +23,7 @@ using Kavita.Common.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace API.Controllers;
 
@@ -162,10 +163,9 @@ public class SettingsController : BaseApiController
             bookmarkDirectory = _directoryService.BookmarkDirectory;
         }
 
+        var updateTask = false;
         foreach (var setting in currentSettings)
         {
-            UpdateSchedulingSettings(setting, updateSettingsDto);
-
             if (setting.Key == ServerSettingKey.OnDeckProgressDays &&
                 updateSettingsDto.OnDeckProgressDays + string.Empty != setting.Value)
             {
@@ -177,13 +177,6 @@ public class SettingsController : BaseApiController
                 updateSettingsDto.OnDeckUpdateDays + string.Empty != setting.Value)
             {
                 setting.Value = updateSettingsDto.OnDeckUpdateDays + string.Empty;
-                _unitOfWork.SettingsRepository.Update(setting);
-            }
-
-            if (setting.Key == ServerSettingKey.CoverImageSize &&
-                updateSettingsDto.CoverImageSize + string.Empty != setting.Value)
-            {
-                setting.Value = updateSettingsDto.CoverImageSize + string.Empty;
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
@@ -204,6 +197,8 @@ public class SettingsController : BaseApiController
                 Configuration.CacheSize = updateSettingsDto.CacheSize;
                 _unitOfWork.SettingsRepository.Update(setting);
             }
+
+            updateTask = updateTask || UpdateSchedulingSettings(setting, updateSettingsDto);
 
             UpdateEmailSettings(setting, updateSettingsDto);
 
@@ -258,9 +253,16 @@ public class SettingsController : BaseApiController
             }
 
             if (setting.Key == ServerSettingKey.EncodeMediaAs &&
-                updateSettingsDto.EncodeMediaAs + string.Empty != setting.Value)
+                ((int)updateSettingsDto.EncodeMediaAs).ToString() != setting.Value)
             {
-                setting.Value = updateSettingsDto.EncodeMediaAs + string.Empty;
+                setting.Value = ((int)updateSettingsDto.EncodeMediaAs).ToString();
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.CoverImageSize &&
+                ((int)updateSettingsDto.CoverImageSize).ToString() != setting.Value)
+            {
+                setting.Value = ((int)updateSettingsDto.CoverImageSize).ToString();
                 _unitOfWork.SettingsRepository.Update(setting);
             }
 
@@ -293,14 +295,6 @@ public class SettingsController : BaseApiController
             {
                 setting.Value = updateSettingsDto.AllowStatCollection + string.Empty;
                 _unitOfWork.SettingsRepository.Update(setting);
-                if (!updateSettingsDto.AllowStatCollection)
-                {
-                    _taskScheduler.CancelStatsTasks();
-                }
-                else
-                {
-                    await _taskScheduler.ScheduleStatsTasks();
-                }
             }
 
             if (setting.Key == ServerSettingKey.TotalBackups &&
@@ -341,20 +335,32 @@ public class SettingsController : BaseApiController
         {
             await _unitOfWork.CommitAsync();
 
+            if (!updateSettingsDto.AllowStatCollection)
+            {
+                _taskScheduler.CancelStatsTasks();
+            }
+            else
+            {
+                await _taskScheduler.ScheduleStatsTasks();
+            }
+
             if (updateBookmarks)
             {
-                _directoryService.ExistOrCreate(bookmarkDirectory);
-                _directoryService.CopyDirectoryToDirectory(originalBookmarkDirectory, bookmarkDirectory);
-                _directoryService.ClearAndDeleteDirectory(originalBookmarkDirectory);
+                UpdateBookmarkDirectory(originalBookmarkDirectory, bookmarkDirectory);
+            }
+
+            if (updateTask)
+            {
+                BackgroundJob.Enqueue(() => _taskScheduler.ScheduleTasks());
             }
 
             if (updateSettingsDto.EnableFolderWatching)
             {
-                await _libraryWatcher.StartWatching();
+                BackgroundJob.Enqueue(() => _libraryWatcher.StartWatching());
             }
             else
             {
-                _libraryWatcher.StopWatching();
+                BackgroundJob.Enqueue(() => _libraryWatcher.StopWatching());
             }
         }
         catch (Exception ex)
@@ -366,29 +372,43 @@ public class SettingsController : BaseApiController
 
 
         _logger.LogInformation("Server Settings updated");
-        await _taskScheduler.ScheduleTasks();
+        BackgroundJob.Enqueue(() => _taskScheduler.ScheduleTasks());
+
         return Ok(updateSettingsDto);
     }
 
-    private void UpdateSchedulingSettings(ServerSetting setting, ServerSettingDto updateSettingsDto)
+
+    private void UpdateBookmarkDirectory(string originalBookmarkDirectory, string bookmarkDirectory)
+    {
+        _directoryService.ExistOrCreate(bookmarkDirectory);
+        _directoryService.CopyDirectoryToDirectory(originalBookmarkDirectory, bookmarkDirectory);
+        _directoryService.ClearAndDeleteDirectory(originalBookmarkDirectory);
+    }
+
+    private bool UpdateSchedulingSettings(ServerSetting setting, ServerSettingDto updateSettingsDto)
     {
         if (setting.Key == ServerSettingKey.TaskBackup && updateSettingsDto.TaskBackup != setting.Value)
         {
             setting.Value = updateSettingsDto.TaskBackup;
             _unitOfWork.SettingsRepository.Update(setting);
+
+            return true;
         }
 
         if (setting.Key == ServerSettingKey.TaskScan && updateSettingsDto.TaskScan != setting.Value)
         {
             setting.Value = updateSettingsDto.TaskScan;
             _unitOfWork.SettingsRepository.Update(setting);
+            return true;
         }
 
         if (setting.Key == ServerSettingKey.TaskCleanup && updateSettingsDto.TaskCleanup != setting.Value)
         {
             setting.Value = updateSettingsDto.TaskCleanup;
             _unitOfWork.SettingsRepository.Update(setting);
+            return true;
         }
+        return false;
     }
 
     private void UpdateEmailSettings(ServerSetting setting, ServerSettingDto updateSettingsDto)
@@ -457,6 +477,7 @@ public class SettingsController : BaseApiController
         }
     }
 
+
     /// <summary>
     /// All values allowed for Task Scheduling APIs. A custom cron job is not included. Disabled is not applicable for Cleanup.
     /// </summary>
@@ -510,6 +531,7 @@ public class SettingsController : BaseApiController
     public async Task<ActionResult<EmailTestResultDto>> TestEmailServiceUrl()
     {
         var user = await _unitOfWork.UserRepository.GetUserByIdAsync(User.GetUserId());
+        if (string.IsNullOrEmpty(user?.Email)) return BadRequest("Your account has no email on record. Cannot email.");
         return Ok(await _emailService.SendTestEmail(user!.Email));
     }
 }

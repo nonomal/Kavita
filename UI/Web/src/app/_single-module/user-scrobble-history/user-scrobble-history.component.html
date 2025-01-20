@@ -1,78 +1,106 @@
 <ng-container *transloco="let t; read:'user-scrobble-history'">
-  <h5>{{t('title')}}</h5>
-  <p>{{t('description')}}</p>
-  <div class="row g-0 mb-2">
-    <div class="col-md-10">
-      <form [formGroup]="formGroup">
-        <div class="form-group pe-1">
-          <label for="filter">{{t('filter-label')}}</label>
-          <input id="filter" type="text" class="form-control" formControlName="filter" autocomplete="off"/>
-        </div>
-      </form>
-    </div>
-    <div class="col-md-2 mt-4">
-      <ngb-pagination *ngIf="pagination"
-                      [(page)]="pagination.currentPage"
-                      [pageSize]="pagination.itemsPerPage"
-                      [collectionSize]="pagination.totalItems"
-                      (pageChange)="onPageChange($event)"
-      ></ngb-pagination>
-    </div>
+
+  <div class="position-relative">
+    <button class="btn btn-primary-outline position-absolute custom-position" [disabled]="events.length > 0" (click)="generateScrobbleEvents()" [title]="t('generate-scrobble-events')">
+      <i class="fa fa-plus" aria-hidden="true"></i><span class="phone-hidden ms-1">{{t('generate-scrobble-events')}}</span>
+    </button>
   </div>
-  <table class="table table-striped table-hover table-sm scrollable">
-    <thead>
-    <tr>
-      <th scope="col" sortable="createdUtc" (sort)="updateSort($event)">
-        {{t('created-header')}}
-      </th>
-      <th scope="col" sortable="lastModifiedUtc" (sort)="updateSort($event)" direction="desc">
+
+  @if (tokenExpired) {
+    <p class="alert alert-warning">{{t('token-expired')}}</p>
+  }
+
+  <p>{{t('description')}}</p>
+  <p class="fw-bold">{{t('not-read-warning')}}</p>
+  <div class="row g-0 mb-2">
+    <form [formGroup]="formGroup">
+      <div class="form-group pe-1">
+        <label for="filter">{{t('filter-label')}}</label>
+        <input id="filter" type="text" class="form-control" formControlName="filter" autocomplete="off"/>
+      </div>
+    </form>
+  </div>
+
+  <ngx-datatable
+    class="bootstrap"
+    [rows]="events"
+    [columnMode]="ColumnMode.force"
+    (sort)="updateSort($event)"
+    (page)="onPageChange($event)"
+    rowHeight="auto"
+    [footerHeight]="50"
+    [externalPaging]="true"
+    [count]="pageInfo.totalElements"
+    [offset]="pageInfo.pageNumber"
+    [limit]="pageInfo.size"
+  >
+
+    <ngx-datatable-column name="lastModifiedUtc" [sortable]="true" [draggable]="false" [resizeable]="false">
+      <ng-template let-column="column" ngx-datatable-header-template>
         {{t('last-modified-header')}}
-      </th>
-      <th scope="col">
+      </ng-template>
+      <ng-template let-value="value" ngx-datatable-cell-template>
+        {{value | utcToLocalTime | defaultValue }}
+      </ng-template>
+    </ngx-datatable-column>
+
+    <ngx-datatable-column name="scrobbleEventType" [sortable]="true" [draggable]="false" [resizeable]="false">
+      <ng-template let-column="column" ngx-datatable-header-template>
         {{t('type-header')}}
-      </th>
-      <th scope="col" sortable="seriesName" (sort)="updateSort($event)">
+      </ng-template>
+      <ng-template let-value="value" ngx-datatable-cell-template>
+        {{value | scrobbleEventType}}
+      </ng-template>
+    </ngx-datatable-column>
+
+    <ngx-datatable-column name="seriesName" [sortable]="true" [draggable]="false" [resizeable]="false">
+      <ng-template let-column="column" ngx-datatable-header-template>
         {{t('series-header')}}
-      </th>
-      <th scope="col">
+      </ng-template>
+      <ng-template let-item="row" let-idx="index" ngx-datatable-cell-template>
+        <a href="/library/{{item.libraryId}}/series/{{item.seriesId}}" target="_blank" id="scrobble-history--{{idx}}">{{item.seriesName}}</a>
+      </ng-template>
+    </ngx-datatable-column>
+
+    <ngx-datatable-column name="data" [sortable]="false" [draggable]="false" [resizeable]="false">
+      <ng-template let-column="column" ngx-datatable-header-template>
         {{t('data-header')}}
-      </th>
-      <th scope="col">
-        {{t('is-processed-header')}}
-      </th>
-    </tr>
-    </thead>
-    <tbody>
-    <tr *ngIf="events.length === 0">
-      <td colspan="6">{{t('no-data')}}</td>
-    </tr>
-    <tr *ngFor="let item of events; let idx = index;">
-      <td>
-        {{item.createdUtc | utcToLocalTime  | defaultValue}}
-      </td>
-      <td>
-        {{item.lastModifiedUtc | utcToLocalTime | defaultValue }}
-      </td>
-      <td>
-        {{item.scrobbleEventType | scrobbleEventType}}
-      </td>
-      <td id="scrobble-history--{{idx}}">
-        <a href="/library/{{item.libraryId}}/series/{{item.seriesId}}" target="_blank">{{item.seriesName}}</a>
-      </td>
-      <td>
-        <ng-container [ngSwitch]="item.scrobbleEventType">
-          <ng-container *ngSwitchCase="ScrobbleEventType.ChapterRead">
-            {{t('volume-and-chapter-num', {v: item.volumeNumber, n: item.chapterNumber})}}
-          </ng-container>
-          <ng-container *ngSwitchCase="ScrobbleEventType.ScoreUpdated">
+      </ng-template>
+      <ng-template let-item="row" ngx-datatable-cell-template>
+        @switch (item.scrobbleEventType) {
+          @case (ScrobbleEventType.ChapterRead) {
+            @if(item.volumeNumber === LooseLeafOrDefaultNumber) {
+              @if (item.chapterNumber === LooseLeafOrDefaultNumber) {
+                {{t('special')}}
+              } @else {
+                {{t('chapter-num', {num: item.chapterNumber})}}
+              }
+            }
+            @else if (item.chapterNumber === LooseLeafOrDefaultNumber) {
+              {{t('volume-num', {num: item.volumeNumber})}}
+            }
+            @else if (item.chapterNumber === LooseLeafOrDefaultNumber && item.volumeNumber === SpecialVolumeNumber) {
+              Special
+            }
+            @else {
+              {{t('volume-and-chapter-num', {v: item.volumeNumber, n: item.chapterNumber})}}
+            }
+          }
+          @case (ScrobbleEventType.ScoreUpdated) {
             {{t('rating', {r: item.rating})}}
-          </ng-container>
-          <ng-container *ngSwitchDefault>
+          }
+          @default {
             {{t('not-applicable')}}
-          </ng-container>
-        </ng-container>
-      </td>
-      <td>
+          }
+        }
+      </ng-template>
+    </ngx-datatable-column>
+
+    <ngx-datatable-column name="isPorcessed" [sortable]="true" [draggable]="false" [resizeable]="false">
+      <ng-template let-column="column" ngx-datatable-header-template>
+        {{t('is-processed-header')}}
+      </ng-template>
+      <ng-template let-item="row" let-idx="index" ngx-datatable-cell-template>
         @if(item.isProcessed) {
           <i class="fa-solid fa-check-circle icon" aria-hidden="true"></i>
         } @else if (item.isErrored) {
@@ -81,10 +109,10 @@
           <i class="fa-regular fa-circle icon" aria-hidden="true"></i>
         }
         <span class="visually-hidden" attr.aria-labelledby="scrobble-history--{{idx}}">
-          {{item.isProcessed ? t('processed') : t('not-processed')}}
-        </span>
-      </td>
-    </tr>
-    </tbody>
-  </table>
+              {{item.isProcessed ? t('processed') : t('not-processed')}}
+            </span>
+      </ng-template>
+    </ngx-datatable-column>
+
+  </ngx-datatable>
 </ng-container>

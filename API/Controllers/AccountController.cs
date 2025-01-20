@@ -15,6 +15,7 @@ using API.Errors;
 using API.Extensions;
 using API.Helpers.Builders;
 using API.Services;
+using API.Services.Plus;
 using API.SignalR;
 using AutoMapper;
 using Hangfire;
@@ -37,6 +38,9 @@ namespace API.Controllers;
 /// </summary>
 public class AccountController : BaseApiController
 {
+    // Hardcoded to avoid localization multiple enumeration: https://github.com/Kareadita/Kavita/issues/2829
+    private const string BadCredentialsMessage = "Your credentials are not correct";
+
     private readonly UserManager<AppUser> _userManager;
     private readonly SignInManager<AppUser> _signInManager;
     private readonly ITokenService _tokenService;
@@ -79,6 +83,7 @@ public class AccountController : BaseApiController
     {
         var user = await _userManager.Users.SingleOrDefaultAsync(x => x.UserName == resetPasswordDto.UserName);
         if (user == null) return Ok(); // Don't report BadRequest as that would allow brute forcing to find accounts on system
+
         _logger.LogInformation("{UserName} is changing {ResetUser}'s password", User.GetUsername(), resetPasswordDto.UserName);
         if (User.IsInRole(PolicyConstants.ReadOnlyRole))
             return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
@@ -204,7 +209,7 @@ public class AccountController : BaseApiController
         if (user == null)
         {
             _logger.LogWarning("Attempted login by {UserName} failed due to unable to find account", loginDto.Username);
-            return Unauthorized(await _localizationService.Get("en", "bad-credentials"));
+            return Unauthorized(BadCredentialsMessage);
         }
         var roles = await _userManager.GetRolesAsync(user);
         if (!roles.Contains(PolicyConstants.LoginRole)) return Unauthorized(await _localizationService.Translate(user.Id, "disabled-account"));
@@ -225,10 +230,10 @@ public class AccountController : BaseApiController
 
             if (!result.Succeeded)
             {
-                var errorStr = await _localizationService.Translate(user.Id,
-                    result.IsNotAllowed ? "confirm-email" : "bad-credentials");
-                _logger.LogWarning("{UserName} failed to log in at {Time}: {Issue}", user.UserName, user.LastActive,
-                    errorStr);
+                string errorStr = result.IsNotAllowed
+                                ? await _localizationService.Translate(user.Id, "confirm-email")
+                                : BadCredentialsMessage;
+                _logger.LogWarning("{UserName} failed to log in at {Time}: {Issue}", user.UserName, user.LastActive, errorStr);
                 return Unauthorized(errorStr);
             }
         }
@@ -363,7 +368,7 @@ public class AccountController : BaseApiController
         }
 
         // Validate no other users exist with this email
-        if (user.Email!.Equals(dto.Email)) return Ok(await _localizationService.Translate(User.GetUserId(), "nothing-to-do"));
+        if (user.Email!.Equals(dto.Email)) return BadRequest(await _localizationService.Translate(User.GetUserId(), "nothing-to-do"));
 
         // Check if email is used by another user
         var existingUserEmail = await _unitOfWork.UserRepository.GetUserByEmailAsync(dto.Email);
@@ -386,8 +391,12 @@ public class AccountController : BaseApiController
         user.ConfirmationToken = token;
         await _userManager.UpdateAsync(user);
 
+        var emailLink = await _emailService.GenerateEmailLink(Request, user.ConfirmationToken, "confirm-email-update", dto.Email);
+        _logger.LogCritical("[Update Email]: Email Link for {UserName}: {Link}", user.UserName, emailLink);
+
         if (!shouldEmailUser)
         {
+            _logger.LogInformation("Cannot email admin, email not setup or admin email invalid");
             return Ok(new InviteUserResponse
             {
                 EmailLink = string.Empty,
@@ -399,9 +408,6 @@ public class AccountController : BaseApiController
         // Send a confirmation email
         try
         {
-            var emailLink = await _emailService.GenerateEmailLink(Request, user.ConfirmationToken, "confirm-email-update", dto.Email);
-            _logger.LogCritical("[Update Email]: Email Link for {UserName}: {Link}", user.UserName, emailLink);
-
             if (!_emailService.IsValidEmail(user.Email))
             {
                 _logger.LogCritical("[Update Email]: User is trying to update their email, but their existing email ({Email}) isn't valid. No email will be send", user.Email);
@@ -452,6 +458,7 @@ public class AccountController : BaseApiController
     {
         var user = await _unitOfWork.UserRepository.GetUserByUsernameAsync(User.GetUsername());
         if (user == null) return Unauthorized(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
+        if (User.IsInRole(PolicyConstants.ReadOnlyRole)) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
 
         var isAdmin = await _unitOfWork.UserRepository.IsUserAdminAsync(user);
         if (!await _accountService.CanChangeAgeRestriction(user)) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
@@ -489,6 +496,7 @@ public class AccountController : BaseApiController
         var adminUser = await _unitOfWork.UserRepository.GetUserByUsernameAsync(User.GetUsername());
         if (adminUser == null) return Unauthorized();
         if (!await _unitOfWork.UserRepository.IsUserAdminAsync(adminUser)) return Unauthorized(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
+        if (User.IsInRole(PolicyConstants.ReadOnlyRole)) return BadRequest(await _localizationService.Translate(User.GetUserId(), "permission-denied"));
 
         var user = await _unitOfWork.UserRepository.GetUserByIdAsync(dto.UserId, AppUserIncludes.SideNavStreams);
         if (user == null) return BadRequest(await _localizationService.Translate(User.GetUserId(), "no-user"));
@@ -501,6 +509,21 @@ public class AccountController : BaseApiController
             if (errors.Any()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "username-taken"));
             user.UserName = dto.Username;
             await _userManager.UpdateNormalizedUserNameAsync(user);
+            _unitOfWork.UserRepository.Update(user);
+        }
+
+        // Check if email is changing for a non-admin user
+        var isUpdatingAnotherAccount = user.Id != adminUser.Id;
+        if (isUpdatingAnotherAccount && !string.IsNullOrEmpty(dto.Email) && user.Email != dto.Email)
+        {
+            // Validate username change
+            var errors = await _accountService.ValidateEmail(dto.Email);
+            if (errors.Any()) return BadRequest(await _localizationService.Translate(User.GetUserId(), "email-taken"));
+
+            user.Email = dto.Email;
+            user.EmailConfirmed = true; // When an admin performs the flow, we assume the email address is able to receive data
+
+            await _userManager.UpdateNormalizedEmailAsync(user);
             _unitOfWork.UserRepository.Update(user);
         }
 
@@ -607,8 +630,7 @@ public class AccountController : BaseApiController
         if (adminUser == null) return Unauthorized(await _localizationService.Translate(userId, "permission-denied"));
 
         dto.Email = dto.Email.Trim();
-        if (string.IsNullOrEmpty(dto.Email))
-            return BadRequest(await _localizationService.Translate(userId, "invalid-payload"));
+        if (string.IsNullOrEmpty(dto.Email)) return BadRequest(await _localizationService.Translate(userId, "invalid-payload"));
 
         _logger.LogInformation("{User} is inviting {Email} to the server", adminUser.UserName, dto.Email);
 
@@ -618,7 +640,7 @@ public class AccountController : BaseApiController
         {
             var invitedUser = await _unitOfWork.UserRepository.GetUserByEmailAsync(dto.Email);
             if (await _userManager.IsEmailConfirmedAsync(invitedUser!))
-                return BadRequest(await _localizationService.Translate(User.GetUserId(), "user-already-registered", invitedUser.UserName));
+                return BadRequest(await _localizationService.Translate(User.GetUserId(), "user-already-registered", invitedUser!.UserName));
             return BadRequest(await _localizationService.Translate(User.GetUserId(), "user-already-invited"));
         }
 
@@ -768,6 +790,7 @@ public class AccountController : BaseApiController
         {
             validationErrors.AddRange(await _accountService.ValidateUsername(dto.Username));
         }
+
         validationErrors.AddRange(await _accountService.ValidatePassword(user, dto.Password));
 
         if (validationErrors.Any())
@@ -839,6 +862,7 @@ public class AccountController : BaseApiController
             return BadRequest(await _localizationService.Translate(user.Id, "generic-user-email-update"));
         }
         user.ConfirmationToken = null;
+        user.EmailConfirmed = true;
         await _unitOfWork.CommitAsync();
 
 
@@ -856,7 +880,7 @@ public class AccountController : BaseApiController
         var user = await _unitOfWork.UserRepository.GetUserByEmailAsync(dto.Email);
         if (user == null)
         {
-            return BadRequest(await _localizationService.Get("en", "bad-credentials"));
+            return BadRequest(BadCredentialsMessage);
         }
 
         try
@@ -866,7 +890,7 @@ public class AccountController : BaseApiController
             if (!result)
             {
                 _logger.LogInformation("Unable to reset password, your email token is not correct: {@Dto}", dto);
-                return BadRequest(await _localizationService.Translate(user.Id, "bad-credentials"));
+                return BadRequest(BadCredentialsMessage);
             }
 
             var errors = await _accountService.ChangeUserPassword(user, dto.Password);
@@ -890,10 +914,7 @@ public class AccountController : BaseApiController
     [EnableRateLimiting("Authentication")]
     public async Task<ActionResult<string>> ForgotPassword([FromQuery] string email)
     {
-
         var settings = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
-        if (!settings.IsEmailSetup()) return Ok(await _localizationService.Get("en", "email-not-enabled"));
-
         var user = await _unitOfWork.UserRepository.GetUserByEmailAsync(email);
         if (user == null)
         {
@@ -908,11 +929,7 @@ public class AccountController : BaseApiController
         if (string.IsNullOrEmpty(user.Email) || !user.EmailConfirmed)
             return BadRequest(await _localizationService.Translate(user.Id, "confirm-email"));
 
-        if (!_emailService.IsValidEmail(user.Email))
-        {
-            _logger.LogCritical("[Forgot Password]: User is trying to do a forgot password flow, but their email ({Email}) isn't valid. No email will be send. Admin must change it in UI", user.Email);
-            return Ok(await _localizationService.Translate(user.Id, "invalid-email"));
-        }
+
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
         var emailLink = await _emailService.GenerateEmailLink(Request, token, "confirm-reset-password", user.Email);
@@ -920,6 +937,13 @@ public class AccountController : BaseApiController
         _unitOfWork.UserRepository.Update(user);
         await _unitOfWork.CommitAsync();
         _logger.LogCritical("[Forgot Password]: Email Link for {UserName}: {Link}", user.UserName, emailLink);
+
+        if (!settings.IsEmailSetup()) return Ok(await _localizationService.Get("en", "email-not-enabled"));
+        if (!_emailService.IsValidEmail(user.Email))
+        {
+            _logger.LogCritical("[Forgot Password]: User is trying to do a forgot password flow, but their email ({Email}) isn't valid. No email will be send. Admin must change it in UI or from url above", user.Email);
+            return Ok(await _localizationService.Translate(user.Id, "invalid-email"));
+        }
 
         var installId = (await _unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.InstallId)).Value;
         BackgroundJob.Enqueue(() => _emailService.SendForgotPasswordEmail(new PasswordResetEmailDto()
@@ -946,12 +970,12 @@ public class AccountController : BaseApiController
     public async Task<ActionResult<UserDto>> ConfirmMigrationEmail(ConfirmMigrationEmailDto dto)
     {
         var user = await _unitOfWork.UserRepository.GetUserByEmailAsync(dto.Email);
-        if (user == null) return BadRequest(await _localizationService.Get("en", "bad-credentials"));
+        if (user == null) return BadRequest(BadCredentialsMessage);
 
         if (!await ConfirmEmailToken(dto.Token, user))
         {
             _logger.LogInformation("confirm-migration-email email token is invalid");
-            return BadRequest(await _localizationService.Translate(user.Id, "bad-credentials"));
+            return BadRequest(BadCredentialsMessage);
         }
 
         await _unitOfWork.CommitAsync();
@@ -989,6 +1013,8 @@ public class AccountController : BaseApiController
             return BadRequest(
                 await _localizationService.Translate(user.Id, "user-migration-needed"));
         if (user.EmailConfirmed) return BadRequest(await _localizationService.Translate(user.Id, "user-already-confirmed"));
+
+        // TODO: If the target user is read only, we might want to just forgo this
 
         var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
         user.ConfirmationToken = token;

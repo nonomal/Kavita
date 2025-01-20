@@ -3,7 +3,7 @@ import {ActivatedRoute, Router} from '@angular/router';
 import {ToastrService} from 'ngx-toastr';
 import {take} from 'rxjs/operators';
 import {ConfirmService} from 'src/app/shared/confirm.service';
-import {UtilityService} from 'src/app/shared/_services/utility.service';
+import {Breakpoint, UtilityService} from 'src/app/shared/_services/utility.service';
 import {LibraryType} from 'src/app/_models/library/library';
 import {MangaFormat} from 'src/app/_models/manga-format';
 import {ReadingList, ReadingListItem} from 'src/app/_models/reading-list';
@@ -28,11 +28,11 @@ import {BadgeExpanderComponent} from '../../../shared/badge-expander/badge-expan
 import {ReadMoreComponent} from '../../../shared/read-more/read-more.component';
 import {NgbDropdown, NgbDropdownItem, NgbDropdownMenu, NgbDropdownToggle} from '@ng-bootstrap/ng-bootstrap';
 import {ImageComponent} from '../../../shared/image/image.component';
-import {AsyncPipe, DatePipe, DecimalPipe, NgClass, NgIf} from '@angular/common';
+import {AsyncPipe, DatePipe, DecimalPipe, NgClass} from '@angular/common';
 import {
   SideNavCompanionBarComponent
 } from '../../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component';
-import {translate, TranslocoDirective, TranslocoService} from "@ngneat/transloco";
+import {translate, TranslocoDirective} from "@jsverse/transloco";
 import {CardActionablesComponent} from "../../../_single-module/card-actionables/card-actionables.component";
 import {FilterUtilitiesService} from "../../../shared/_services/filter-utilities.service";
 import {FilterField} from "../../../_models/metadata/v2/filter-field";
@@ -46,13 +46,33 @@ import {Title} from "@angular/platform-browser";
     styleUrls: ['./reading-list-detail.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: true,
-  imports: [SideNavCompanionBarComponent, NgIf, CardActionablesComponent, ImageComponent, NgbDropdown,
+  imports: [SideNavCompanionBarComponent, CardActionablesComponent, ImageComponent, NgbDropdown,
     NgbDropdownToggle, NgbDropdownMenu, NgbDropdownItem, ReadMoreComponent, BadgeExpanderComponent,
     PersonBadgeComponent, A11yClickDirective, LoadingComponent, DraggableOrderedListComponent,
     ReadingListItemComponent, NgClass, AsyncPipe, DecimalPipe, DatePipe, TranslocoDirective,
     MetadataDetailComponent]
 })
 export class ReadingListDetailComponent implements OnInit {
+
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private readingListService = inject(ReadingListService);
+  private actionService = inject(ActionService);
+  private actionFactoryService = inject(ActionFactoryService);
+  public utilityService = inject(UtilityService);
+  public imageService = inject(ImageService);
+  private accountService = inject(AccountService);
+  private toastr = inject(ToastrService);
+  private confirmService = inject(ConfirmService);
+  private libraryService = inject(LibraryService);
+  private readerService = inject(ReaderService);
+  private cdRef = inject(ChangeDetectorRef);
+  private filterUtilityService = inject(FilterUtilitiesService);
+  private titleService = inject(Title);
+
+  protected readonly MangaFormat = MangaFormat;
+  protected readonly Breakpoint = Breakpoint;
+
   items: Array<ReadingListItem> = [];
   listId!: number;
   readingList: ReadingList | undefined;
@@ -60,21 +80,13 @@ export class ReadingListDetailComponent implements OnInit {
   isAdmin: boolean = false;
   isLoading: boolean = false;
   accessibilityMode: boolean = false;
-  hasDownloadingRole: boolean = false;
   readingListSummary: string = '';
 
   libraryTypes: {[key: number]: LibraryType} = {};
   characters$!: Observable<Person[]>;
 
-  private translocoService = inject(TranslocoService);
-  protected readonly MangaFormat = MangaFormat;
 
-  constructor(private route: ActivatedRoute, private router: Router, private readingListService: ReadingListService,
-    private actionService: ActionService, private actionFactoryService: ActionFactoryService, public utilityService: UtilityService,
-    public imageService: ImageService, private accountService: AccountService, private toastr: ToastrService,
-    private confirmService: ConfirmService, private libraryService: LibraryService, private readerService: ReaderService,
-    private readonly cdRef: ChangeDetectorRef, private filterUtilityService: FilterUtilitiesService, private titleService: Title) {
-  }
+
 
   ngOnInit(): void {
     const listId = this.route.snapshot.paramMap.get('id');
@@ -86,6 +98,9 @@ export class ReadingListDetailComponent implements OnInit {
 
     this.listId = parseInt(listId, 10);
     this.characters$ = this.readingListService.getCharacters(this.listId);
+
+    this.accessibilityMode = this.utilityService.getActiveBreakpoint() < Breakpoint.Tablet;
+    this.cdRef.markForCheck();
 
     forkJoin([
       this.libraryService.getLibraries(),
@@ -114,7 +129,6 @@ export class ReadingListDetailComponent implements OnInit {
       this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
         if (user) {
           this.isAdmin = this.accountService.hasAdminRole(user);
-          this.hasDownloadingRole = this.accountService.hasDownloadRole(user);
 
           this.actions = this.actionFactoryService.getReadingListActions(this.handleReadingListActionCallback.bind(this))
             .filter(action => this.readingListService.actionListFilter(action, readingList, this.isAdmin));
@@ -160,17 +174,33 @@ export class ReadingListDetailComponent implements OnInit {
             this.readingList = rl;
             this.readingListSummary = (this.readingList.summary === null ? '' : this.readingList.summary).replace(/\n/g, '<br>');
             this.cdRef.markForCheck();
-          })
+          });
+        });
+        break;
+      case Action.Promote:
+        this.actionService.promoteMultipleReadingLists([this.readingList!], true, () => {
+          if (this.readingList) {
+            this.readingList.promoted = true;
+            this.cdRef.markForCheck();
+          }
+        });
+        break;
+      case Action.UnPromote:
+        this.actionService.promoteMultipleReadingLists([this.readingList!], false, () => {
+          if (this.readingList) {
+            this.readingList.promoted = false;
+            this.cdRef.markForCheck();
+          }
         });
         break;
     }
   }
 
   async deleteList(readingList: ReadingList) {
-    if (!await this.confirmService.confirm(this.translocoService.translate('toasts.confirm-delete-reading-list'))) return;
+    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-reading-list'))) return;
 
     this.readingListService.delete(readingList.id).subscribe(() => {
-      this.toastr.success(this.translocoService.translate('toasts.reading-list-deleted'));
+      this.toastr.success(translate('toasts.reading-list-deleted'));
       this.router.navigateByUrl('/lists');
     });
   }
@@ -188,7 +218,7 @@ export class ReadingListDetailComponent implements OnInit {
       this.items.splice(position, 1);
       this.items = [...this.items];
       this.cdRef.markForCheck();
-      this.toastr.success(this.translocoService.translate('toasts.item-removed'));
+      this.toastr.success(translate('toasts.item-removed'));
     });
   }
 
@@ -198,7 +228,7 @@ export class ReadingListDetailComponent implements OnInit {
     this.cdRef.markForCheck();
     this.readingListService.removeRead(this.readingList.id).subscribe((resp) => {
       if (resp === 'Nothing to remove') {
-        this.toastr.info(this.translocoService.translate('toasts.nothing-to-remove'));
+        this.toastr.info(translate('toasts.nothing-to-remove'));
         return;
       }
       this.getListItems();

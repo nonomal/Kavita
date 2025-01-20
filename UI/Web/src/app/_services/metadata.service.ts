@@ -11,13 +11,15 @@ import {Person, PersonRole} from '../_models/metadata/person';
 import {Tag} from '../_models/tag';
 import {FilterComparison} from '../_models/metadata/v2/filter-comparison';
 import {FilterField} from '../_models/metadata/v2/filter-field';
-import {Router} from "@angular/router";
 import {SortField} from "../_models/metadata/series-filter";
 import {FilterCombination} from "../_models/metadata/v2/filter-combination";
 import {SeriesFilterV2} from "../_models/metadata/v2/series-filter-v2";
 import {FilterStatement} from "../_models/metadata/v2/filter-statement";
 import {SeriesDetailPlus} from "../_models/series-detail/series-detail-plus";
 import {LibraryType} from "../_models/library/library";
+import {IHasCast} from "../_models/common/i-has-cast";
+import {TextResonse} from "../_types/text-response";
+import {QueryContext} from "../_models/metadata/v2/query-context";
 
 @Injectable({
   providedIn: 'root'
@@ -61,11 +63,14 @@ export class MetadataService {
     return this.httpClient.get<Array<Tag>>(this.baseUrl + method);
   }
 
-  getAllGenres(libraries?: Array<number>) {
+  getAllGenres(libraries?: Array<number>, context: QueryContext = QueryContext.None) {
     let method = 'metadata/genres'
     if (libraries != undefined && libraries.length > 0) {
-      method += '?libraryIds=' + libraries.join(',');
+      method += '?libraryIds=' + libraries.join(',') + '&context=' + context;
+    } else {
+      method += '?context=' + context;
     }
+
     return this.httpClient.get<Array<Genre>>(this.baseUrl + method);
   }
 
@@ -75,6 +80,10 @@ export class MetadataService {
       method += '?libraryIds=' + libraries.join(',');
     }
     return this.httpClient.get<Array<Language>>(this.baseUrl + method);
+  }
+
+  getLanguageNameForCode(code: string) {
+    return this.httpClient.get<string>(`${this.baseUrl}metadata/language-title?code=${code}`, TextResonse);
   }
 
 
@@ -125,5 +134,53 @@ export class MetadataService {
     arr[index].comparison = filterStmt.comparison;
     arr[index].field = filterStmt.field;
     arr[index].value = filterStmt.value ? filterStmt.value + '' : '';
+  }
+
+  updatePerson(entity: IHasCast, persons: Person[], role: PersonRole) {
+    switch (role) {
+      case PersonRole.Other:
+        break;
+      case PersonRole.Artist:
+        break;
+      case PersonRole.CoverArtist:
+        entity.coverArtists = persons;
+        break;
+      case PersonRole.Character:
+        entity.characters = persons;
+        break;
+      case PersonRole.Colorist:
+        entity.colorists = persons;
+        break;
+      case PersonRole.Editor:
+        entity.editors = persons;
+        break;
+      case PersonRole.Inker:
+        entity.inkers = persons;
+        break;
+      case PersonRole.Letterer:
+        entity.letterers = persons;
+        break;
+      case PersonRole.Penciller:
+        entity.pencillers = persons;
+        break;
+      case PersonRole.Publisher:
+        entity.publishers = persons;
+        break;
+      case PersonRole.Imprint:
+        entity.imprints = persons;
+        break;
+      case PersonRole.Team:
+        entity.teams = persons;
+        break;
+      case PersonRole.Location:
+        entity.locations = persons;
+        break;
+      case PersonRole.Writer:
+        entity.writers = persons;
+        break;
+      case PersonRole.Translator:
+        entity.translators = persons;
+        break;
+    }
   }
 }

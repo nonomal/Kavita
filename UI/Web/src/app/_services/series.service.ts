@@ -5,8 +5,6 @@ import { map } from 'rxjs/operators';
 import { environment } from 'src/environments/environment';
 import { UtilityService } from '../shared/_services/utility.service';
 import { Chapter } from '../_models/chapter';
-import { ChapterMetadata } from '../_models/metadata/chapter-metadata';
-import { CollectionTag } from '../_models/collection-tag';
 import { PaginatedResult } from '../_models/pagination';
 import { Series } from '../_models/series';
 import { RelatedSeries } from '../_models/series-detail/related-series';
@@ -22,6 +20,9 @@ import {Rating} from "../_models/rating";
 import {Recommendation} from "../_models/series-detail/recommendation";
 import {ExternalSeriesDetail} from "../_models/series-detail/external-series-detail";
 import {NextExpectedChapter} from "../_models/series-detail/next-expected-chapter";
+import {QueryContext} from "../_models/metadata/v2/query-context";
+import {ExternalSeries} from "../_models/series-detail/external-series";
+import {ExternalSeriesMatch} from "../_models/series-detail/external-series-match";
 
 @Injectable({
   providedIn: 'root'
@@ -35,12 +36,12 @@ export class SeriesService {
   constructor(private httpClient: HttpClient, private imageService: ImageService,
     private utilityService: UtilityService) { }
 
-  getAllSeriesV2(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2) {
+  getAllSeriesV2(pageNum?: number, itemsPerPage?: number, filter?: SeriesFilterV2, context: QueryContext = QueryContext.None) {
     let params = new HttpParams();
     params = this.utilityService.addPaginationIfExists(params, pageNum, itemsPerPage);
     const data = filter || {};
 
-    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series/all-v2', data, {observe: 'response', params}).pipe(
+    return this.httpClient.post<PaginatedResult<Series[]>>(this.baseUrl + 'series/all-v2?context=' + context, data, {observe: 'response', params}).pipe(
         map((response: any) => {
           return this.utilityService.createPaginatedResult(response, this.paginatedResults);
         })
@@ -75,16 +76,12 @@ export class SeriesService {
     return this.httpClient.get<Chapter>(this.baseUrl + 'series/chapter?chapterId=' + chapterId);
   }
 
-  getChapterMetadata(chapterId: number) {
-    return this.httpClient.get<ChapterMetadata>(this.baseUrl + 'series/chapter-metadata?chapterId=' + chapterId);
-  }
-
   delete(seriesId: number) {
-    return this.httpClient.delete<boolean>(this.baseUrl + 'series/' + seriesId);
+    return this.httpClient.delete<string>(this.baseUrl + 'series/' + seriesId, TextResonse).pipe(map(s => s === "true"));
   }
 
   deleteMultipleSeries(seriesIds: Array<number>) {
-    return this.httpClient.post<boolean>(this.baseUrl + 'series/delete-multiple', {seriesIds});
+    return this.httpClient.post<string>(this.baseUrl + 'series/delete-multiple', {seriesIds}, TextResonse).pipe(map(s => s === "true"));
   }
 
   updateRating(seriesId: number, userRating: number) {
@@ -149,8 +146,8 @@ export class SeriesService {
   }
 
 
-  refreshMetadata(series: Series) {
-    return this.httpClient.post(this.baseUrl + 'series/refresh-metadata', {libraryId: series.libraryId, seriesId: series.id});
+  refreshMetadata(series: Series, force = true, forceColorscape = true) {
+    return this.httpClient.post(this.baseUrl + 'series/refresh-metadata', {libraryId: series.libraryId, seriesId: series.id, forceUpdate: force, forceColorscape});
   }
 
   scan(libraryId: number, seriesId: number, force = false) {
@@ -162,16 +159,12 @@ export class SeriesService {
   }
 
   getMetadata(seriesId: number) {
-    return this.httpClient.get<SeriesMetadata>(this.baseUrl + 'series/metadata?seriesId=' + seriesId).pipe(map(items => {
-      items?.collectionTags.forEach(tag => tag.coverImage = this.imageService.getCollectionCoverImage(tag.id));
-      return items;
-    }));
+    return this.httpClient.get<SeriesMetadata>(this.baseUrl + 'series/metadata?seriesId=' + seriesId);
   }
 
-  updateMetadata(seriesMetadata: SeriesMetadata, collectionTags: CollectionTag[]) {
+  updateMetadata(seriesMetadata: SeriesMetadata) {
     const data = {
       seriesMetadata,
-      collectionTags,
     };
     return this.httpClient.post(this.baseUrl + 'series/metadata', data, TextResonse);
   }
@@ -199,10 +192,11 @@ export class SeriesService {
   updateRelationships(seriesId: number, adaptations: Array<number>, characters: Array<number>,
     contains: Array<number>, others: Array<number>, prequels: Array<number>,
     sequels: Array<number>, sideStories: Array<number>, spinOffs: Array<number>,
-    alternativeSettings: Array<number>, alternativeVersions: Array<number>, doujinshis: Array<number>, editions: Array<number>) {
+    alternativeSettings: Array<number>, alternativeVersions: Array<number>,
+    doujinshis: Array<number>, editions: Array<number>, annuals: Array<number>) {
     return this.httpClient.post(this.baseUrl + 'series/update-related?seriesId=' + seriesId,
     {seriesId, adaptations, characters, sequels, prequels, contains, others, sideStories, spinOffs,
-     alternativeSettings, alternativeVersions, doujinshis, editions});
+     alternativeSettings, alternativeVersions, doujinshis, editions, annuals});
   }
 
   getSeriesDetail(seriesId: number) {
@@ -241,6 +235,18 @@ export class SeriesService {
 
   getNextExpectedChapterDate(seriesId: number) {
     return this.httpClient.get<NextExpectedChapter>(this.baseUrl + 'series/next-expected?seriesId=' + seriesId);
+  }
+
+  matchSeries(model: any) {
+    return this.httpClient.post<Array<ExternalSeriesMatch>>(this.baseUrl + 'series/match', model);
+  }
+
+  updateMatch(seriesId: number, series: ExternalSeriesDetail) {
+    return this.httpClient.post<string>(this.baseUrl + 'series/update-match?seriesId=' + seriesId, series, TextResonse);
+  }
+
+  updateDontMatch(seriesId: number, dontMatch: boolean) {
+    return this.httpClient.post<string>(this.baseUrl + `series/dont-match?seriesId=${seriesId}&dontMatch=${dontMatch}`, {}, TextResonse);
   }
 
 }

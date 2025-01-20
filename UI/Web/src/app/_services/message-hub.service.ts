@@ -9,15 +9,21 @@ import { UserUpdateEvent } from '../_models/events/user-update-event';
 import { User } from '../_models/user';
 import {DashboardUpdateEvent} from "../_models/events/dashboard-update-event";
 import {SideNavUpdateEvent} from "../_models/events/sidenav-update-event";
+import {SiteThemeUpdatedEvent} from "../_models/events/site-theme-updated-event";
 
 export enum EVENTS {
   UpdateAvailable = 'UpdateAvailable',
   ScanSeries = 'ScanSeries',
   SeriesAdded = 'SeriesAdded',
   SeriesRemoved = 'SeriesRemoved',
+  VolumeRemoved = 'VolumeRemoved',
+  ChapterRemoved = 'ChapterRemoved',
   ScanLibraryProgress = 'ScanLibraryProgress',
   OnlineUsers = 'OnlineUsers',
-  SeriesAddedToCollection = 'SeriesAddedToCollection',
+  /**
+   * When a Collection has been updated
+   */
+  CollectionUpdated = 'CollectionUpdated',
   /**
    * A generic error that occurs during operations on the server
    */
@@ -40,6 +46,10 @@ export enum EVENTS {
    * A subtype of NotificationProgress that represents the underlying file being processed during a scan
    */
   FileScanProgress = 'FileScanProgress',
+  /**
+   * A subtype of NotificationProgress that represents a single series being processed (into the DB)
+   */
+  ScanProgress = 'ScanProgress',
   /**
    * A custom user site theme is added or removed during a scan
    */
@@ -91,7 +101,15 @@ export enum EVENTS {
   /**
    * User's sidenav needs to be re-rendered
    */
-  SideNavUpdate = 'SideNavUpdate'
+  SideNavUpdate = 'SideNavUpdate',
+  /**
+   * A Theme was updated and UI should refresh to get the latest version
+   */
+  SiteThemeUpdated = 'SiteThemeUpdated',
+  /**
+   * A Progress event when a smart collection is synchronizing
+   */
+  SmartCollectionSync = 'SmartCollectionSync'
 }
 
 export interface Message<T> {
@@ -141,7 +159,7 @@ export class MessageHubService {
         accessTokenFactory: () => user.token
       })
       .withAutomaticReconnect()
-      //.withStatefulReconnect() // Needs @microsoft/signalr@8
+      //.withStatefulReconnect() // Requires signalr@8.0
       .build();
 
     this.hubConnection
@@ -187,6 +205,20 @@ export class MessageHubService {
       });
     });
 
+    this.hubConnection.on(EVENTS.SmartCollectionSync, resp => {
+      this.messagesSource.next({
+        event: EVENTS.NotificationProgress,
+        payload: resp.body
+      });
+    });
+
+    this.hubConnection.on(EVENTS.SiteThemeUpdated, resp => {
+      this.messagesSource.next({
+        event: EVENTS.SiteThemeUpdated,
+        payload: resp.body as SiteThemeUpdatedEvent
+      });
+    });
+
     this.hubConnection.on(EVENTS.DashboardUpdate, resp => {
       this.messagesSource.next({
         event: EVENTS.DashboardUpdate,
@@ -214,9 +246,9 @@ export class MessageHubService {
       });
     });
 
-    this.hubConnection.on(EVENTS.SeriesAddedToCollection, resp => {
+    this.hubConnection.on(EVENTS.CollectionUpdated, resp => {
       this.messagesSource.next({
-        event: EVENTS.SeriesAddedToCollection,
+        event: EVENTS.CollectionUpdated,
         payload: resp.body
       });
     });
@@ -259,6 +291,20 @@ export class MessageHubService {
     this.hubConnection.on(EVENTS.SeriesRemoved, resp => {
       this.messagesSource.next({
         event: EVENTS.SeriesRemoved,
+        payload: resp.body
+      });
+    });
+
+    this.hubConnection.on(EVENTS.ChapterRemoved, resp => {
+      this.messagesSource.next({
+        event: EVENTS.ChapterRemoved,
+        payload: resp.body
+      });
+    });
+
+    this.hubConnection.on(EVENTS.VolumeRemoved, resp => {
+      this.messagesSource.next({
+        event: EVENTS.VolumeRemoved,
         payload: resp.body
       });
     });

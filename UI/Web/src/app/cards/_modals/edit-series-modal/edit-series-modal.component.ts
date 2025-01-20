@@ -17,12 +17,11 @@ import {
   NgbNavOutlet,
   NgbTooltip
 } from '@ng-bootstrap/ng-bootstrap';
-import { forkJoin, Observable, of } from 'rxjs';
+import {forkJoin, Observable, of, tap} from 'rxjs';
 import { map } from 'rxjs/operators';
 import { Breakpoint, UtilityService } from 'src/app/shared/_services/utility.service';
 import { TypeaheadSettings } from 'src/app/typeahead/_models/typeahead-settings';
-import { Chapter } from 'src/app/_models/chapter';
-import { CollectionTag } from 'src/app/_models/collection-tag';
+import {Chapter, LooseLeafOrDefaultNumber, SpecialVolumeNumber} from 'src/app/_models/chapter';
 import { Genre } from 'src/app/_models/metadata/genre';
 import { AgeRatingDto } from 'src/app/_models/metadata/age-rating-dto';
 import { Language } from 'src/app/_models/metadata/language';
@@ -31,7 +30,6 @@ import { Person, PersonRole } from 'src/app/_models/metadata/person';
 import { Series } from 'src/app/_models/series';
 import { SeriesMetadata } from 'src/app/_models/metadata/series-metadata';
 import { Tag } from 'src/app/_models/tag';
-import { CollectionTagService } from 'src/app/_services/collection-tag.service';
 import { ImageService } from 'src/app/_services/image.service';
 import { LibraryService } from 'src/app/_services/library.service';
 import { MetadataService } from 'src/app/_services/metadata.service';
@@ -51,13 +49,20 @@ import {PublicationStatusPipe} from "../../../_pipes/publication-status.pipe";
 import {BytesPipe} from "../../../_pipes/bytes.pipe";
 import {ImageComponent} from "../../../shared/image/image.component";
 import {DefaultValuePipe} from "../../../_pipes/default-value.pipe";
-import {translate, TranslocoModule} from "@ngneat/transloco";
-import {TranslocoDatePipe} from "@ngneat/transloco-locale";
+import {translate, TranslocoModule} from "@jsverse/transloco";
+import {TranslocoDatePipe} from "@jsverse/transloco-locale";
 import {UtcToLocalTimePipe} from "../../../_pipes/utc-to-local-time.pipe";
 import {EditListComponent} from "../../../shared/edit-list/edit-list.component";
 import {AccountService} from "../../../_services/account.service";
-import {LibraryType} from "../../../_models/library/library";
 import {ToastrService} from "ngx-toastr";
+import {Volume} from "../../../_models/volume";
+import {Action, ActionFactoryService, ActionItem} from "../../../_services/action-factory.service";
+import {SettingButtonComponent} from "../../../settings/_components/setting-button/setting-button.component";
+import {ActionService} from "../../../_services/action.service";
+import {DownloadService} from "../../../shared/_services/download.service";
+import {SettingItemComponent} from "../../../settings/_components/setting-item/setting-item.component";
+import {ReadTimePipe} from "../../../_pipes/read-time.pipe";
+import {LicenseService} from "../../../_services/license.service";
 
 enum TabID {
   General = 0,
@@ -67,6 +72,7 @@ enum TabID {
   CoverImage = 4,
   Related = 5,
   Info = 6,
+  Tasks = 7
 }
 
 export interface EditSeriesModalCloseResult {
@@ -75,6 +81,10 @@ export interface EditSeriesModalCloseResult {
   coverImageUpdate: boolean;
   updateExternal: boolean
 }
+
+const blackList = [Action.Edit, Action.Info, Action.IncognitoRead, Action.Read, Action.SendTo,
+  Action.AddToWantToReadList, Action.AddToCollection, Action.AddToReadingList, Action.RemoveFromWantToReadList,
+  Action.RemoveFromWantToReadList];
 
 @Component({
   selector: 'app-edit-series-modal',
@@ -105,6 +115,9 @@ export interface EditSeriesModalCloseResult {
     TranslocoDatePipe,
     UtcToLocalTimePipe,
     EditListComponent,
+    SettingButtonComponent,
+    SettingItemComponent,
+    ReadTimePipe,
   ],
   templateUrl: './edit-series-modal.component.html',
   styleUrls: ['./edit-series-modal.component.scss'],
@@ -118,17 +131,21 @@ export class EditSeriesModalComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   public readonly imageService = inject(ImageService);
   private readonly libraryService = inject(LibraryService);
-  private readonly collectionService = inject(CollectionTagService);
   private readonly uploadService = inject(UploadService);
   private readonly metadataService = inject(MetadataService);
   private readonly cdRef = inject(ChangeDetectorRef);
   public readonly accountService = inject(AccountService);
+  protected readonly licenseService = inject(LicenseService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly toastr = inject(ToastrService);
+  private readonly actionFactoryService = inject(ActionFactoryService);
+  private readonly actionService = inject(ActionService);
+  private readonly downloadService = inject(DownloadService);
 
   protected readonly TabID = TabID;
   protected readonly PersonRole = PersonRole;
   protected readonly Breakpoint = Breakpoint;
+  protected readonly Action = Action;
 
   @Input({required: true}) series!: Series;
 
@@ -139,9 +156,9 @@ export class EditSeriesModalComponent implements OnInit {
    * A copy of the series from init. This is used to compare values for name fields to see if lock was modified
    */
   initSeries!: Series;
-
+  tasks = this.actionFactoryService.getActionablesForSettingsPage(this.actionFactoryService.getSeriesActions(this.runTask.bind(this)), blackList);
   volumeCollapsed: any = {};
-  tabs = ['general-tab', 'metadata-tab', 'people-tab', 'web-links-tab', 'cover-image-tab', 'related-tab', 'info-tab'];
+  tabs = ['general-tab', 'metadata-tab', 'people-tab', 'web-links-tab', 'cover-image-tab', 'related-tab', 'info-tab', 'tasks-tab'];
   active = this.tabs[0];
   editSeriesForm!: FormGroup;
   libraryName: string | undefined = undefined;
@@ -154,10 +171,8 @@ export class EditSeriesModalComponent implements OnInit {
   tagsSettings: TypeaheadSettings<Tag> = new TypeaheadSettings();
   languageSettings: TypeaheadSettings<Language> = new TypeaheadSettings();
   peopleSettings: {[PersonRole: string]: TypeaheadSettings<Person>} = {};
-  collectionTagSettings: TypeaheadSettings<CollectionTag> = new TypeaheadSettings();
   genreSettings: TypeaheadSettings<Genre> = new TypeaheadSettings();
 
-  collectionTags: CollectionTag[] = [];
   tags: Tag[] = [];
   genres: Genre[] = [];
   ageRatings: Array<AgeRatingDto> = [];
@@ -171,6 +186,7 @@ export class EditSeriesModalComponent implements OnInit {
    */
   selectedCover: string = '';
   coverImageReset = false;
+  isAdmin: boolean = false;
 
   saveNestedComponents: EventEmitter<void> = new EventEmitter();
 
@@ -188,6 +204,11 @@ export class EditSeriesModalComponent implements OnInit {
     this.libraryService.getLibraryNames().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(names => {
       this.libraryName = names[this.series.libraryId];
     });
+
+    this.accountService.isAdmin$.pipe(takeUntilDestroyed(this.destroyRef), tap(isAdmin => {
+      this.isAdmin = isAdmin;
+      this.cdRef.markForCheck();
+    })).subscribe();
 
     this.initSeries = Object.assign({}, this.series);
 
@@ -296,8 +317,10 @@ export class EditSeriesModalComponent implements OnInit {
         this.volumeCollapsed[v.name] = true;
       });
       this.seriesVolumes.forEach(vol => {
-        vol.volumeFiles = vol.chapters?.sort(this.utilityService.sortChapters).map((c: Chapter) => c.files.map((f: any) => {
-          f.chapter = c.number;
+        //.sort(this.utilityService.sortChapters) (no longer needed, all data is sorted on the backend)
+        vol.volumeFiles = vol.chapters?.map((c: Chapter) => c.files.map((f: any) => {
+          // TODO: Identify how to fix this hack
+          f.chapter = c.range;
           return f;
         })).flat();
       });
@@ -315,45 +338,25 @@ export class EditSeriesModalComponent implements OnInit {
     });
   }
 
+  formatVolumeName(volume: Volume) {
+    if (volume.minNumber === LooseLeafOrDefaultNumber) {
+      return translate('edit-series-modal.loose-leaf-volume');
+    } else if (volume.minNumber === SpecialVolumeNumber) {
+      return translate('edit-series-modal.specials-volume');
+    }
+    return translate('edit-series-modal.volume-num') + ' ' + volume.name;
+  }
+
 
   setupTypeaheads() {
     forkJoin([
-      this.setupCollectionTagsSettings(),
       this.setupTagSettings(),
       this.setupGenreTypeahead(),
       this.setupPersonTypeahead(),
       this.setupLanguageTypeahead()
     ]).subscribe(results => {
-      this.collectionTags = this.metadata.collectionTags;
       this.cdRef.markForCheck();
     });
-  }
-
-  setupCollectionTagsSettings() {
-    this.collectionTagSettings.minCharacters = 0;
-    this.collectionTagSettings.multiple = true;
-    this.collectionTagSettings.id = 'collections';
-    this.collectionTagSettings.unique = true;
-    this.collectionTagSettings.addIfNonExisting = true;
-    this.collectionTagSettings.fetchFn = (filter: string) => this.fetchCollectionTags(filter).pipe(map(items => this.collectionTagSettings.compareFn(items, filter)));
-    this.collectionTagSettings.addTransformFn = ((title: string) => {
-      return {id: 0, title: title, promoted: false, coverImage: '', summary: '', coverImageLocked: false };
-    });
-    this.collectionTagSettings.compareFn = (options: CollectionTag[], filter: string) => {
-      return options.filter(m => this.utilityService.filter(m.title, filter));
-    }
-    this.collectionTagSettings.compareFnForAdd = (options: CollectionTag[], filter: string) => {
-      return options.filter(m => this.utilityService.filterMatches(m.title, filter));
-    }
-    this.collectionTagSettings.selectionCompareFn = (a: CollectionTag, b: CollectionTag) => {
-      return a.title === b.title;
-    }
-
-    if (this.metadata.collectionTags) {
-      this.collectionTagSettings.savedData = this.metadata.collectionTags;
-    }
-
-    return of(true);
   }
 
   setupTagSettings() {
@@ -426,7 +429,8 @@ export class EditSeriesModalComponent implements OnInit {
         const presetIds = presetField.map(p => p.id);
         personSettings.savedData = people.filter(person => presetIds.includes(person.id));
         this.peopleSettings[role] = personSettings;
-        this.updatePerson(personSettings.savedData as Person[], role);
+        this.metadataService.updatePerson(this.metadata, personSettings.savedData as Person[], role);
+        this.cdRef.markForCheck();
         return true;
       }));
     } else {
@@ -475,7 +479,10 @@ export class EditSeriesModalComponent implements OnInit {
       this.updateFromPreset('letterer', this.metadata.letterers, PersonRole.Letterer),
       this.updateFromPreset('penciller', this.metadata.pencillers, PersonRole.Penciller),
       this.updateFromPreset('publisher', this.metadata.publishers, PersonRole.Publisher),
-      this.updateFromPreset('translator', this.metadata.translators, PersonRole.Translator)
+      this.updateFromPreset('imprint', this.metadata.imprints, PersonRole.Imprint),
+      this.updateFromPreset('translator', this.metadata.translators, PersonRole.Translator),
+      this.updateFromPreset('teams', this.metadata.teams, PersonRole.Team),
+      this.updateFromPreset('locations', this.metadata.locations, PersonRole.Location),
     ]).pipe(map(results => {
       return of(true);
     }));
@@ -483,12 +490,12 @@ export class EditSeriesModalComponent implements OnInit {
 
   fetchPeople(role: PersonRole, filter: string) {
     return this.metadataService.getAllPeople().pipe(map(people => {
-      return people.filter(p => p.role == role && this.utilityService.filter(p.name, filter));
+      return people.filter(p => this.utilityService.filter(p.name, filter));
     }));
   }
 
   createBlankPersonSettings(id: string, role: PersonRole) {
-    var personSettings = new TypeaheadSettings<Person>();
+    const personSettings = new TypeaheadSettings<Person>();
     personSettings.minCharacters = 0;
     personSettings.multiple = true;
     personSettings.showLocked = true;
@@ -503,14 +510,14 @@ export class EditSeriesModalComponent implements OnInit {
     }
 
     personSettings.selectionCompareFn = (a: Person, b: Person) => {
-      return a.name == b.name && a.role == b.role;
+      return a.name == b.name;
     }
     personSettings.fetchFn = (filter: string) => {
       return this.fetchPeople(role, filter).pipe(map(items => personSettings.compareFn(items, filter)));
     };
 
     personSettings.addTransformFn = ((title: string) => {
-      return {id: 0, name: title, role: role };
+      return {id: 0, name: title, description: '', coverImageLocked: false, primaryColor: '', secondaryColor: '' };
     });
 
     return personSettings;
@@ -530,10 +537,6 @@ export class EditSeriesModalComponent implements OnInit {
     });
   }
 
-  fetchCollectionTags(filter: string = '') {
-    return this.collectionService.search(filter);
-  }
-
   updateWeblinks(items: Array<string>) {
     this.metadata.webLinks = items.map(s => s.replaceAll(',', '%2C')).join(',');
   }
@@ -544,12 +547,13 @@ export class EditSeriesModalComponent implements OnInit {
     const selectedIndex = this.editSeriesForm.get('coverImageIndex')?.value || 0;
 
     const apis = [
-      this.seriesService.updateMetadata(this.metadata, this.collectionTags)
+      this.seriesService.updateMetadata(this.metadata)
     ];
 
     // We only need to call updateSeries if we changed name, sort name, or localized name or reset a cover image
     const nameFieldsDirty = this.editSeriesForm.get('name')?.dirty || this.editSeriesForm.get('sortName')?.dirty || this.editSeriesForm.get('localizedName')?.dirty;
     const nameFieldLockChanged = this.series.nameLocked !== this.initSeries.nameLocked || this.series.sortNameLocked !== this.initSeries.sortNameLocked || this.series.localizedNameLocked !== this.initSeries.localizedNameLocked;
+
     if (nameFieldsDirty || nameFieldLockChanged || this.coverImageReset) {
       model.nameLocked = this.series.nameLocked;
       model.sortNameLocked = this.series.sortNameLocked;
@@ -559,8 +563,8 @@ export class EditSeriesModalComponent implements OnInit {
     }
 
 
-    if (selectedIndex > 0 && this.selectedCover !== '') {
-      apis.push(this.uploadService.updateSeriesCoverImage(model.id, this.selectedCover));
+    if (selectedIndex > 0 || this.coverImageReset) {
+      apis.push(this.uploadService.updateSeriesCoverImage(model.id, this.selectedCover, !this.coverImageReset));
     }
 
     this.saveNestedComponents.emit();
@@ -570,10 +574,6 @@ export class EditSeriesModalComponent implements OnInit {
     });
   }
 
-  updateCollections(tags: CollectionTag[]) {
-    this.collectionTags = tags;
-    this.cdRef.markForCheck();
-  }
 
   updateTags(tags: Tag[]) {
     this.tags = tags;
@@ -587,47 +587,18 @@ export class EditSeriesModalComponent implements OnInit {
     this.cdRef.markForCheck();
   }
 
+  updatePerson(persons: Person[], role: PersonRole) {
+    this.metadataService.updatePerson(this.metadata, persons, role);
+    this.metadata.locationLocked = true;
+    this.cdRef.markForCheck();
+  }
+
   updateLanguage(language: Array<Language>) {
     if (language.length === 0) {
       this.metadata.language = '';
       return;
     }
     this.metadata.language = language[0].isoCode;
-    this.cdRef.markForCheck();
-  }
-
-  updatePerson(persons: Person[], role: PersonRole) {
-    switch (role) {
-      case PersonRole.CoverArtist:
-        this.metadata.coverArtists = persons;
-        break;
-      case PersonRole.Character:
-        this.metadata.characters = persons;
-        break;
-      case PersonRole.Colorist:
-        this.metadata.colorists = persons;
-        break;
-      case PersonRole.Editor:
-        this.metadata.editors = persons;
-        break;
-      case PersonRole.Inker:
-        this.metadata.inkers = persons;
-        break;
-      case PersonRole.Letterer:
-        this.metadata.letterers = persons;
-        break;
-      case PersonRole.Penciller:
-        this.metadata.pencillers = persons;
-        break;
-      case PersonRole.Publisher:
-        this.metadata.publishers = persons;
-        break;
-      case PersonRole.Writer:
-        this.metadata.writers = persons;
-        break;
-      case PersonRole.Translator:
-        this.metadata.translators = persons;
-    }
     this.cdRef.markForCheck();
   }
 
@@ -658,4 +629,32 @@ export class EditSeriesModalComponent implements OnInit {
     this.cdRef.markForCheck();
   }
 
+  async runTask(action: ActionItem<Series>) {
+    switch (action.action) {
+      case Action.Scan:
+        await this.actionService.scanSeries(this.series);
+        break;
+      case Action.RefreshMetadata:
+        await this.actionService.refreshSeriesMetadata(this.series);
+        break;
+      case Action.GenerateColorScape:
+        await this.actionService.refreshSeriesMetadata(this.series, undefined, false, true);
+        break;
+      case Action.AnalyzeFiles:
+        this.actionService.analyzeFilesForSeries(this.series);
+        break;
+      case Action.MarkAsRead:
+        this.actionService.markSeriesAsRead(this.series);
+        break;
+      case Action.MarkAsUnread:
+        this.actionService.markSeriesAsUnread(this.series);
+        break;
+      case Action.Delete:
+        await this.actionService.deleteSeries(this.series);
+        break;
+      case Action.Download:
+        this.downloadService.download('series', this.series);
+        break;
+    }
+  }
 }

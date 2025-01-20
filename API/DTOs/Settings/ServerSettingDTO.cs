@@ -1,4 +1,5 @@
-﻿using API.Entities.Enums;
+﻿using System;
+using API.Entities.Enums;
 using API.Services;
 
 namespace API.DTOs.Settings;
@@ -88,6 +89,14 @@ public class ServerSettingDto
     /// SMTP Configuration
     /// </summary>
     public SmtpConfigDto SmtpConfig { get; set; }
+    /// <summary>
+    /// The Date Kavita was first installed
+    /// </summary>
+    public DateTime? FirstInstallDate { get; set; }
+    /// <summary>
+    /// The Version of Kavita on the first run
+    /// </summary>
+    public string? FirstInstallVersion { get; set; }
 
     /// <summary>
     /// Are at least some basics filled in
@@ -95,9 +104,18 @@ public class ServerSettingDto
     /// <returns></returns>
     public bool IsEmailSetup()
     {
-        //return false;
         return !string.IsNullOrEmpty(SmtpConfig.Host)
-               && !string.IsNullOrEmpty(SmtpConfig.UserName)
+               && !string.IsNullOrEmpty(SmtpConfig.SenderAddress)
                && !string.IsNullOrEmpty(HostName);
+    }
+
+    /// <summary>
+    /// Are at least some basics filled in, but not hostname as not required for Send to Device
+    /// </summary>
+    /// <returns></returns>
+    public bool IsEmailSetupForSendToDevice()
+    {
+        return !string.IsNullOrEmpty(SmtpConfig.Host)
+               && !string.IsNullOrEmpty(SmtpConfig.SenderAddress);
     }
 }

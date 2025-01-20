@@ -1,6 +1,6 @@
 import { Pipe, PipeTransform } from '@angular/core';
 import { FilterField } from 'src/app/_models/metadata/v2/filter-field';
-import {translate} from "@ngneat/transloco";
+import {translate} from "@jsverse/transloco";
 
 @Pipe({
   name: 'filterField',
@@ -28,6 +28,12 @@ export class FilterFieldPipe implements PipeTransform {
         return translate('filter-field-pipe.genres');
       case FilterField.Inker:
         return translate('filter-field-pipe.inker');
+      case FilterField.Imprint:
+        return translate('filter-field-pipe.imprint');
+      case FilterField.Team:
+        return translate('filter-field-pipe.team');
+      case FilterField.Location:
+        return translate('filter-field-pipe.location');
       case FilterField.Languages:
         return translate('filter-field-pipe.languages');
       case FilterField.Libraries:
@@ -66,6 +72,8 @@ export class FilterFieldPipe implements PipeTransform {
         return translate('filter-field-pipe.want-to-read');
       case FilterField.ReadingDate:
         return translate('filter-field-pipe.read-date');
+        case FilterField.ReadLast:
+        return translate('filter-field-pipe.read-last');
       case FilterField.AverageRating:
         return translate('filter-field-pipe.average-rating');
       default:

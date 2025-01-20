@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using API.Entities;
 using API.Entities.Enums;
 using API.Entities.Enums.UserPreferences;
+using API.Entities.History;
 using API.Entities.Interfaces;
 using API.Entities.Metadata;
 using API.Entities.Scrobble;
@@ -36,6 +37,7 @@ public sealed class DataContext : IdentityDbContext<AppUser, AppRole, int,
     public DbSet<ServerSetting> ServerSetting { get; set; } = null!;
     public DbSet<AppUserPreferences> AppUserPreferences { get; set; } = null!;
     public DbSet<SeriesMetadata> SeriesMetadata { get; set; } = null!;
+    [Obsolete]
     public DbSet<CollectionTag> CollectionTag { get; set; } = null!;
     public DbSet<AppUserBookmark> AppUserBookmark { get; set; } = null!;
     public DbSet<ReadingList> ReadingList { get; set; } = null!;
@@ -64,6 +66,10 @@ public sealed class DataContext : IdentityDbContext<AppUser, AppRole, int,
     public DbSet<ExternalRecommendation> ExternalRecommendation { get; set; } = null!;
     public DbSet<ManualMigrationHistory> ManualMigrationHistory { get; set; } = null!;
     public DbSet<SeriesBlacklist> SeriesBlacklist { get; set; } = null!;
+    public DbSet<AppUserCollection> AppUserCollection { get; set; } = null!;
+    public DbSet<ChapterPeople> ChapterPeople { get; set; } = null!;
+    public DbSet<SeriesMetadataPeople> SeriesMetadataPeople { get; set; } = null!;
+    public DbSet<EmailHistory> EmailHistory { get; set; } = null!;
 
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -143,6 +149,46 @@ public sealed class DataContext : IdentityDbContext<AppUser, AppRole, int,
         builder.Entity<AppUserSideNavStream>()
             .HasIndex(e => e.Visible)
             .IsUnique(false);
+
+        builder.Entity<ExternalSeriesMetadata>()
+            .HasOne(em => em.Series)
+            .WithOne(s => s.ExternalSeriesMetadata)
+            .HasForeignKey<ExternalSeriesMetadata>(em => em.SeriesId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<AppUserCollection>()
+            .Property(b => b.AgeRating)
+            .HasDefaultValue(AgeRating.Unknown);
+
+        // Configure the many-to-many relationship for Movie and Person
+        builder.Entity<ChapterPeople>()
+            .HasKey(cp => new { cp.ChapterId, cp.PersonId, cp.Role });
+
+        builder.Entity<ChapterPeople>()
+            .HasOne(cp => cp.Chapter)
+            .WithMany(c => c.People)
+            .HasForeignKey(cp => cp.ChapterId);
+
+        builder.Entity<ChapterPeople>()
+            .HasOne(cp => cp.Person)
+            .WithMany(p => p.ChapterPeople)
+            .HasForeignKey(cp => cp.PersonId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        builder.Entity<SeriesMetadataPeople>()
+            .HasKey(smp => new { smp.SeriesMetadataId, smp.PersonId, smp.Role });
+
+        builder.Entity<SeriesMetadataPeople>()
+            .HasOne(smp => smp.SeriesMetadata)
+            .WithMany(sm => sm.People)
+            .HasForeignKey(smp => smp.SeriesMetadataId);
+
+        builder.Entity<SeriesMetadataPeople>()
+            .HasOne(smp => smp.Person)
+            .WithMany(p => p.SeriesMetadataPeople)
+            .HasForeignKey(smp => smp.PersonId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     #nullable enable
@@ -150,10 +196,15 @@ public sealed class DataContext : IdentityDbContext<AppUser, AppRole, int,
     {
         if (e.FromQuery || e.Entry.State != EntityState.Added || e.Entry.Entity is not IEntityDate entity) return;
 
-        entity.Created = DateTime.Now;
         entity.LastModified = DateTime.Now;
-        entity.CreatedUtc = DateTime.UtcNow;
         entity.LastModifiedUtc = DateTime.UtcNow;
+
+        // This allows for mocking
+        if (entity.Created == DateTime.MinValue)
+        {
+            entity.Created = DateTime.Now;
+            entity.CreatedUtc = DateTime.UtcNow;
+        }
     }
 
     private static void OnEntityStateChanged(object? sender, EntityStateChangedEventArgs e)

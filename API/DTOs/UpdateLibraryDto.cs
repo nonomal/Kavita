@@ -19,8 +19,6 @@ public class UpdateLibraryDto
     [Required]
     public bool IncludeInDashboard { get; init; }
     [Required]
-    public bool IncludeInRecommended { get; init; }
-    [Required]
     public bool IncludeInSearch { get; init; }
     [Required]
     public bool ManageCollections { get; init; }
@@ -36,5 +34,6 @@ public class UpdateLibraryDto
     /// <summary>
     /// A set of Glob patterns that the scanner will exclude processing
     /// </summary>
+    [Required]
     public ICollection<string> ExcludePatterns { get; init; }
 }

@@ -14,15 +14,6 @@ public class SeriesMetadata : IHasConcurrencyToken
 
     public string Summary { get; set; } = string.Empty;
 
-    public ICollection<CollectionTag> CollectionTags { get; set; } = new List<CollectionTag>();
-
-    public ICollection<Genre> Genres { get; set; } = new List<Genre>();
-    public ICollection<Tag> Tags { get; set; } = new List<Tag>();
-    /// <summary>
-    /// All people attached at a Series level.
-    /// </summary>
-    public ICollection<Person> People { get; set; } = new List<Person>();
-
     /// <summary>
     /// Highest Age Rating from all Chapters
     /// </summary>
@@ -50,7 +41,8 @@ public class SeriesMetadata : IHasConcurrencyToken
     /// <remarks>This is not populated from Chapters of the Series</remarks>
     public string WebLinks { get; set; } = string.Empty;
 
-    // Locks
+    #region Locks
+
     public bool LanguageLocked { get; set; }
     public bool SummaryLocked { get; set; }
     /// <summary>
@@ -68,17 +60,36 @@ public class SeriesMetadata : IHasConcurrencyToken
     public bool ColoristLocked { get; set; }
     public bool EditorLocked { get; set; }
     public bool InkerLocked { get; set; }
+    public bool ImprintLocked { get; set; }
     public bool LettererLocked { get; set; }
     public bool PencillerLocked { get; set; }
     public bool PublisherLocked { get; set; }
     public bool TranslatorLocked { get; set; }
+    public bool TeamLocked { get; set; }
+    public bool LocationLocked { get; set; }
     public bool CoverArtistLocked { get; set; }
     public bool ReleaseYearLocked { get; set; }
 
+    #endregion
 
-    // Relationship
-    public Series Series { get; set; } = null!;
+    #region Relationships
+
+    [Obsolete("Use AppUserCollection instead")]
+    public ICollection<CollectionTag> CollectionTags { get; set; } = new List<CollectionTag>();
+
+    public ICollection<Genre> Genres { get; set; } = new List<Genre>();
+    public ICollection<Tag> Tags { get; set; } = new List<Tag>();
+
+    /// <summary>
+    /// All people attached at a Series level.
+    /// </summary>
+    public ICollection<SeriesMetadataPeople> People { get; set; } = new List<SeriesMetadataPeople>();
+
     public int SeriesId { get; set; }
+    public Series Series { get; set; } = null!;
+
+    #endregion
+
 
     /// <inheritdoc />
     [ConcurrencyCheck]

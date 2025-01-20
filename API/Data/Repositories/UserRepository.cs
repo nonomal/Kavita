@@ -7,6 +7,7 @@ using API.DTOs;
 using API.DTOs.Account;
 using API.DTOs.Dashboard;
 using API.DTOs.Filtering.v2;
+using API.DTOs.KavitaPlus.Account;
 using API.DTOs.Reader;
 using API.DTOs.Scrobbling;
 using API.DTOs.SeriesDetail;
@@ -15,6 +16,7 @@ using API.Entities;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
 using API.Extensions.QueryExtensions.Filtering;
+using API.Helpers;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Microsoft.AspNetCore.Identity;
@@ -38,7 +40,8 @@ public enum AppUserIncludes
     SmartFilters = 1024,
     DashboardStreams = 2048,
     SideNavStreams = 4096,
-    ExternalSources = 8192 // 2^13
+    ExternalSources = 8192,
+    Collections = 16384 // 2^14
 }
 
 public interface IUserRepository
@@ -57,6 +60,7 @@ public interface IUserRepository
     Task<IEnumerable<MemberDto>> GetEmailConfirmedMemberDtosAsync(bool emailConfirmed = true);
     Task<IEnumerable<AppUser>> GetAdminUsersAsync();
     Task<bool> IsUserAdminAsync(AppUser? user);
+    Task<IList<string>> GetRoles(int userId);
     Task<AppUserRating?> GetUserRatingAsync(int seriesId, int userId);
     Task<IList<UserReviewDto>> GetUserRatingDtosForSeriesAsync(int seriesId, int userId);
     Task<AppUserPreferences?> GetPreferencesAsync(string username);
@@ -76,9 +80,9 @@ public interface IUserRepository
     Task<IEnumerable<AppUserPreferences>> GetAllPreferencesByThemeAsync(int themeId);
     Task<bool> HasAccessToLibrary(int libraryId, int userId);
     Task<bool> HasAccessToSeries(int userId, int seriesId);
-    Task<IEnumerable<AppUser>> GetAllUsersAsync(AppUserIncludes includeFlags = AppUserIncludes.None);
+    Task<IEnumerable<AppUser>> GetAllUsersAsync(AppUserIncludes includeFlags = AppUserIncludes.None, bool track = true);
     Task<AppUser?> GetUserByConfirmationToken(string token);
-    Task<AppUser> GetDefaultAdminUser();
+    Task<AppUser> GetDefaultAdminUser(AppUserIncludes includes = AppUserIncludes.None);
     Task<IEnumerable<AppUserRating>> GetSeriesWithRatings(int userId);
     Task<IEnumerable<AppUserRating>> GetSeriesWithReviews(int userId);
     Task<bool> HasHoldOnSeries(int userId, int seriesId);
@@ -94,6 +98,8 @@ public interface IUserRepository
     Task<IList<AppUserSideNavStream>> GetSideNavStreamsByLibraryId(int libraryId);
     Task<IList<AppUserSideNavStream>> GetSideNavStreamWithExternalSource(int externalSourceId);
     Task<IList<AppUserSideNavStream>> GetDashboardStreamsByIds(IList<int> streamIds);
+    Task<IEnumerable<UserTokenInfo>> GetUserTokenInfo();
+    Task<AppUser?> GetUserByDeviceEmail(string deviceEmail);
 }
 
 public class UserRepository : IUserRepository
@@ -281,10 +287,17 @@ public class UserRepository : IUserRepository
             .AnyAsync(s => s.Id == seriesId);
     }
 
-    public async Task<IEnumerable<AppUser>> GetAllUsersAsync(AppUserIncludes includeFlags = AppUserIncludes.None)
+    public async Task<IEnumerable<AppUser>> GetAllUsersAsync(AppUserIncludes includeFlags = AppUserIncludes.None, bool track = true)
     {
-        return await _context.AppUser
-            .Includes(includeFlags)
+        var query = _context.AppUser
+            .Includes(includeFlags);
+        if (track)
+        {
+            return await query.ToListAsync();
+        }
+
+        return await query
+            .AsNoTracking()
             .ToListAsync();
     }
 
@@ -298,11 +311,13 @@ public class UserRepository : IUserRepository
     /// Returns the first admin account created
     /// </summary>
     /// <returns></returns>
-    public async Task<AppUser> GetDefaultAdminUser()
+    public async Task<AppUser> GetDefaultAdminUser(AppUserIncludes includes = AppUserIncludes.None)
     {
-        return (await _userManager.GetUsersInRoleAsync(PolicyConstants.AdminRole))
+        return await _context.AppUser
+            .Includes(includes)
+            .Where(u => u.UserRoles.Any(r => r.Role.Name == PolicyConstants.AdminRole))
             .OrderBy(u => u.Created)
-            .First();
+            .FirstAsync();
     }
 
     public async Task<IEnumerable<AppUserRating>> GetSeriesWithRatings(int userId)
@@ -479,16 +494,61 @@ public class UserRepository : IUserRepository
             .ToListAsync();
     }
 
+    public async Task<IEnumerable<UserTokenInfo>> GetUserTokenInfo()
+    {
+        var users = await _context.AppUser
+            .Select(u => new
+            {
+                u.Id,
+                u.UserName,
+                u.AniListAccessToken, // JWT Token
+                u.MalAccessToken // JWT Token
+            })
+            .ToListAsync();
+
+        var userTokenInfos = users.Select(user => new UserTokenInfo
+        {
+            UserId = user.Id,
+            Username = user.UserName,
+            IsAniListTokenSet = !string.IsNullOrEmpty(user.AniListAccessToken),
+            AniListValidUntilUtc = JwtHelper.GetTokenExpiry(user.AniListAccessToken),
+            IsAniListTokenValid = JwtHelper.IsTokenValid(user.AniListAccessToken),
+            IsMalTokenSet = !string.IsNullOrEmpty(user.MalAccessToken),
+        });
+
+        return userTokenInfos;
+    }
+
+    /// <summary>
+    /// Returns the first user with a device email matching
+    /// </summary>
+    /// <param name="deviceEmail"></param>
+    /// <returns></returns>
+    public async Task<AppUser> GetUserByDeviceEmail(string deviceEmail)
+    {
+        return await _context.AppUser
+            .Where(u => u.Devices.Any(d => d.EmailAddress == deviceEmail))
+            .FirstOrDefaultAsync();
+    }
+
 
     public async Task<IEnumerable<AppUser>> GetAdminUsersAsync()
     {
-        return await _userManager.GetUsersInRoleAsync(PolicyConstants.AdminRole);
+        return (await _userManager.GetUsersInRoleAsync(PolicyConstants.AdminRole)).OrderBy(u => u.CreatedUtc);
     }
 
     public async Task<bool> IsUserAdminAsync(AppUser? user)
     {
         if (user == null) return false;
         return await _userManager.IsInRoleAsync(user, PolicyConstants.AdminRole);
+    }
+
+    public async Task<IList<string>> GetRoles(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null || _userManager == null) return ArraySegment<string>.Empty; // userManager is null on Unit Tests only
+
+        return await _userManager.GetRolesAsync(user);
     }
 
     public async Task<AppUserRating?> GetUserRatingAsync(int seriesId, int userId)

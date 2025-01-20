@@ -52,7 +52,9 @@ public class ReadingListServiceTests
         var mapper = config.CreateMapper();
         _unitOfWork = new UnitOfWork(_context, mapper, null!);
 
-        _readingListService = new ReadingListService(_unitOfWork, Substitute.For<ILogger<ReadingListService>>(), Substitute.For<IEventHub>());
+        var ds = new DirectoryService(Substitute.For<ILogger<DirectoryService>>(), new MockFileSystem());
+        _readingListService = new ReadingListService(_unitOfWork, Substitute.For<ILogger<ReadingListService>>(),
+            Substitute.For<IEventHub>(), Substitute.For<IImageService>(), ds);
 
         _readerService = new ReaderService(_unitOfWork, Substitute.For<ILogger<ReaderService>>(),
             Substitute.For<IEventHub>(), Substitute.For<IImageService>(),
@@ -128,7 +130,7 @@ public class ReadingListServiceTests
                 .WithMetadata(new SeriesMetadataBuilder().Build())
                 .WithVolumes(new List<Volume>()
                 {
-                    new VolumeBuilder("0")
+                    new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                         .WithChapter(new ChapterBuilder("1")
                             .WithAgeRating(AgeRating.Everyone)
                             .Build()
@@ -177,7 +179,7 @@ public class ReadingListServiceTests
                 .WithSeries(new SeriesBuilder("Test")
                     .WithVolumes(new List<Volume>()
                     {
-                        new VolumeBuilder("0")
+                        new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                             .WithChapter(new ChapterBuilder("1")
                                 .WithAgeRating(AgeRating.Everyone)
                                 .Build()
@@ -236,7 +238,7 @@ public class ReadingListServiceTests
                         .WithMetadata(new SeriesMetadataBuilder().Build())
                         .WithVolumes(new List<Volume>()
                         {
-                            new VolumeBuilder("0")
+                            new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                                 .WithChapter(new ChapterBuilder("1")
                                     .WithAgeRating(AgeRating.Everyone)
                                     .Build()
@@ -296,7 +298,7 @@ public class ReadingListServiceTests
                         .WithMetadata(new SeriesMetadataBuilder().Build())
                         .WithVolumes(new List<Volume>()
                         {
-                            new VolumeBuilder("0")
+                            new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                                 .WithChapter(new ChapterBuilder("1")
                                     .WithAgeRating(AgeRating.Everyone)
                                     .Build()
@@ -375,7 +377,7 @@ public class ReadingListServiceTests
                         .WithMetadata(new SeriesMetadataBuilder().Build())
                         .WithVolumes(new List<Volume>()
                         {
-                            new VolumeBuilder("0")
+                            new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                                 .WithChapter(new ChapterBuilder("1")
                                     .WithAgeRating(AgeRating.Everyone)
                                     .Build()
@@ -432,7 +434,7 @@ public class ReadingListServiceTests
                         .WithMetadata(new SeriesMetadataBuilder().Build())
                         .WithVolumes(new List<Volume>()
                         {
-                            new VolumeBuilder("0")
+                            new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                                 .WithChapter(new ChapterBuilder("1")
                                     .WithAgeRating(AgeRating.Everyone)
                                     .Build()
@@ -497,7 +499,7 @@ public class ReadingListServiceTests
                         .WithMetadata(new SeriesMetadataBuilder().Build())
                         .WithVolumes(new List<Volume>()
                         {
-                            new VolumeBuilder("0")
+                            new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                                 .WithChapter(new ChapterBuilder("1")
                                     .Build()
                                 )
@@ -538,7 +540,7 @@ public class ReadingListServiceTests
             .WithMetadata(new SeriesMetadataBuilder().Build())
             .WithVolumes(new List<Volume>()
             {
-                new VolumeBuilder("0")
+                new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                     .WithChapter(new ChapterBuilder("1")
                         .Build()
                     )
@@ -593,7 +595,7 @@ public class ReadingListServiceTests
             .WithMetadata(new SeriesMetadataBuilder().Build())
             .WithVolumes(new List<Volume>()
             {
-                new VolumeBuilder("0")
+                new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                     .WithChapter(new ChapterBuilder("1")
                         .Build()
                     )
@@ -645,7 +647,7 @@ public class ReadingListServiceTests
             .WithMetadata(new SeriesMetadataBuilder().Build())
             .WithVolumes(new List<Volume>()
             {
-                new VolumeBuilder("0")
+                new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                     .WithChapter(new ChapterBuilder("1")
                         .WithReleaseDate(new DateTime(2005, 03, 01))
                         .Build()
@@ -711,6 +713,9 @@ public class ReadingListServiceTests
         Assert.Equal("Issue #1", ReadingListService.FormatTitle(CreateListItemDto(MangaFormat.Archive, LibraryType.Comic, "1", "1", "The Title")));
         Assert.Equal("Volume 1", ReadingListService.FormatTitle(CreateListItemDto(MangaFormat.Archive, LibraryType.Comic, "1",  chapterTitleName: "The Title")));
         Assert.Equal("The Title", ReadingListService.FormatTitle(CreateListItemDto(MangaFormat.Archive, LibraryType.Comic, chapterTitleName: "The Title")));
+        var dto = CreateListItemDto(MangaFormat.Archive, LibraryType.Comic, chapterNumber: "The Special Title");
+        dto.IsSpecial = true;
+        Assert.Equal("The Special Title", ReadingListService.FormatTitle(dto));
 
         // Book Library & Archive
         Assert.Equal("Volume 1", ReadingListService.FormatTitle(CreateListItemDto(MangaFormat.Archive, LibraryType.Book, "1")));
@@ -736,8 +741,8 @@ public class ReadingListServiceTests
     }
 
     private static ReadingListItemDto CreateListItemDto(MangaFormat seriesFormat, LibraryType libraryType,
-        string volumeNumber = API.Services.Tasks.Scanner.Parser.Parser.DefaultVolume,
-        string chapterNumber = API.Services.Tasks.Scanner.Parser.Parser.DefaultChapter,
+        string volumeNumber = API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume,
+        string chapterNumber =API.Services.Tasks.Scanner.Parser.Parser.DefaultChapter,
         string chapterTitleName = "")
     {
         return new ReadingListItemDto()
@@ -1205,6 +1210,65 @@ public class ReadingListServiceTests
         Assert.Equal(2, createdList.Items.First(item => item.Order == 2).ChapterId);
         Assert.Equal(4, createdList.Items.First(item => item.Order == 3).ChapterId);
     }
+
+    /// <summary>
+    /// This test is about ensuring Annuals that are a separate series can be linked up properly (ComicVine)
+    /// </summary>
+    //[Fact]
+    public async Task CreateReadingListFromCBL_ShouldCreateList_WithAnnuals()
+    {
+        // TODO: Implement this correctly
+        await ResetDb();
+        var cblReadingList = LoadCblFromPath("Annual.cbl");
+
+        // Mock up our series
+        var fablesSeries = new SeriesBuilder("Fables")
+            .WithVolume(new VolumeBuilder("2002")
+                .WithMinNumber(1)
+                .WithChapter(new ChapterBuilder("1").Build())
+                .WithChapter(new ChapterBuilder("2").Build())
+                .WithChapter(new ChapterBuilder("3").Build())
+                .Build())
+            .Build();
+
+        var fables2Series = new SeriesBuilder("Fables Annual")
+            .WithVolume(new VolumeBuilder("2003")
+                .WithMinNumber(1)
+                .WithChapter(new ChapterBuilder("1").Build())
+                .Build())
+            .Build();
+
+        _context.AppUser.Add(new AppUser()
+        {
+            UserName = "majora2007",
+            ReadingLists = new List<ReadingList>(),
+            Libraries = new List<Library>()
+            {
+                new LibraryBuilder("Test LIb 2", LibraryType.Book)
+                    .WithSeries(fablesSeries)
+                    .WithSeries(fables2Series)
+                    .Build()
+            },
+        });
+        await _unitOfWork.CommitAsync();
+
+        var importSummary = await _readingListService.CreateReadingListFromCbl(1, cblReadingList);
+
+        Assert.Equal(CblImportResult.Success, importSummary.Success);
+        Assert.NotEmpty(importSummary.Results);
+
+        var createdList = await _unitOfWork.ReadingListRepository.GetReadingListByIdAsync(1);
+
+        Assert.NotNull(createdList);
+        Assert.Equal("Annual", createdList.Title);
+
+        Assert.Equal(4, createdList.Items.Count);
+        Assert.Equal(1, createdList.Items.First(item => item.Order == 0).ChapterId);
+        Assert.Equal(2, createdList.Items.First(item => item.Order == 1).ChapterId);
+        Assert.Equal(4, createdList.Items.First(item => item.Order == 2).ChapterId);
+        Assert.Equal(3, createdList.Items.First(item => item.Order == 3).ChapterId);
+    }
+
     #endregion
 
     #region CreateReadingListsFromSeries
@@ -1239,7 +1303,7 @@ public class ReadingListServiceTests
 
         var series2 = new SeriesBuilder("Series 2")
             .WithFormat(MangaFormat.Archive)
-            .WithVolume(new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.DefaultVolume)
+            .WithVolume(new VolumeBuilder(API.Services.Tasks.Scanner.Parser.Parser.LooseLeafVolume)
                 .WithChapter(new ChapterBuilder("1").Build())
                 .WithChapter(new ChapterBuilder("2").Build())
                 .Build())

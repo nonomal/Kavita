@@ -17,9 +17,9 @@ import { ToastrService } from 'ngx-toastr';
 import { ImageService } from 'src/app/_services/image.service';
 import { KEY_CODES } from 'src/app/shared/_services/utility.service';
 import { UploadService } from 'src/app/_services/upload.service';
-import {CommonModule, DOCUMENT} from '@angular/common';
+import {DOCUMENT, NgClass} from '@angular/common';
 import {ImageComponent} from "../../shared/image/image.component";
-import {translate, TranslocoModule} from "@ngneat/transloco";
+import {translate, TranslocoModule} from "@jsverse/transloco";
 
 @Component({
   selector: 'app-cover-image-chooser',
@@ -27,9 +27,9 @@ import {translate, TranslocoModule} from "@ngneat/transloco";
   imports: [
     ReactiveFormsModule,
     NgxFileDropModule,
-    CommonModule,
     ImageComponent,
-    TranslocoModule
+    TranslocoModule,
+    NgClass
   ],
   templateUrl: './cover-image-chooser.component.html',
   styleUrls: ['./cover-image-chooser.component.scss'],

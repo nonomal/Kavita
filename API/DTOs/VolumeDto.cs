@@ -3,10 +3,12 @@ using System;
 using System.Collections.Generic;
 using API.Entities;
 using API.Entities.Interfaces;
+using API.Extensions;
+using API.Services.Tasks.Scanner.Parser;
 
 namespace API.DTOs;
 
-public class VolumeDto : IHasReadTimeEstimate
+public class VolumeDto : IHasReadTimeEstimate, IHasCoverImage
 {
     public int Id { get; set; }
     /// <inheritdoc cref="Volume.MinNumber"/>
@@ -19,7 +21,7 @@ public class VolumeDto : IHasReadTimeEstimate
     /// This will map to MinNumber. Number was removed in v0.7.13.8/v0.7.14
     /// </summary>
     [Obsolete("Use MinNumber")]
-    public float Number { get; set; }
+    public int Number { get; set; }
     public int Pages { get; set; }
     public int PagesRead { get; set; }
     public DateTime LastModifiedUtc { get; set; }
@@ -41,5 +43,35 @@ public class VolumeDto : IHasReadTimeEstimate
     /// <inheritdoc cref="IHasReadTimeEstimate.MaxHoursToRead"/>
     public int MaxHoursToRead { get; set; }
     /// <inheritdoc cref="IHasReadTimeEstimate.AvgHoursToRead"/>
-    public int AvgHoursToRead { get; set; }
+    public float AvgHoursToRead { get; set; }
+    public long WordCount { get; set; }
+
+    /// <summary>
+    /// Is this a loose leaf volume
+    /// </summary>
+    /// <returns></returns>
+    public bool IsLooseLeaf()
+    {
+        return MinNumber.Is(Parser.LooseLeafVolumeNumber);
+    }
+
+    /// <summary>
+    /// Does this volume hold only specials
+    /// </summary>
+    /// <returns></returns>
+    public bool IsSpecial()
+    {
+        return MinNumber.Is(Parser.SpecialVolumeNumber);
+    }
+
+    public string CoverImage { get; set; }
+    private bool CoverImageLocked { get; set; }
+    public string PrimaryColor { get; set; }
+    public string SecondaryColor { get; set; }
+
+    public void ResetColorScape()
+    {
+        PrimaryColor = string.Empty;
+        SecondaryColor = string.Empty;
+    }
 }

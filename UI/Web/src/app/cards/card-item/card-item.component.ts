@@ -1,20 +1,20 @@
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
-  Component, DestroyRef,
+  Component, ContentChild, DestroyRef,
   EventEmitter,
   HostListener,
   inject,
   Input,
   OnInit,
-  Output
+  Output, TemplateRef
 } from '@angular/core';
 import { Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { DownloadEvent, DownloadService } from 'src/app/shared/_services/download.service';
 import { UtilityService } from 'src/app/shared/_services/utility.service';
 import { Chapter } from 'src/app/_models/chapter';
-import { CollectionTag } from 'src/app/_models/collection-tag';
+import { UserCollection } from 'src/app/_models/collection-tag';
 import { UserProgressUpdateEvent } from 'src/app/_models/events/user-progress-update-event';
 import { MangaFormat } from 'src/app/_models/manga-format';
 import { PageBookmark } from 'src/app/_models/readers/page-bookmark';
@@ -37,19 +37,24 @@ import {FormsModule} from "@angular/forms";
 import {MangaFormatPipe} from "../../_pipes/manga-format.pipe";
 import {MangaFormatIconPipe} from "../../_pipes/manga-format-icon.pipe";
 import {SentenceCasePipe} from "../../_pipes/sentence-case.pipe";
-import {CommonModule} from "@angular/common";
+import {DecimalPipe, NgTemplateOutlet} from "@angular/common";
 import {RouterLink, RouterLinkActive} from "@angular/router";
-import {TranslocoModule} from "@ngneat/transloco";
+import {TranslocoModule} from "@jsverse/transloco";
 import {CardActionablesComponent} from "../../_single-module/card-actionables/card-actionables.component";
 import {NextExpectedChapter} from "../../_models/series-detail/next-expected-chapter";
 import {UtcToLocalTimePipe} from "../../_pipes/utc-to-local-time.pipe";
 import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
+import {PromotedIconComponent} from "../../shared/_components/promoted-icon/promoted-icon.component";
+import {SeriesFormatComponent} from "../../shared/series-format/series-format.component";
+import {BrowsePerson} from "../../_models/person/browse-person";
+import {CompactNumberPipe} from "../../_pipes/compact-number.pipe";
+
+export type CardEntity = Series | Volume | Chapter | UserCollection | PageBookmark | RecentlyAddedItem | NextExpectedChapter | BrowsePerson;
 
 @Component({
   selector: 'app-card-item',
   standalone: true,
   imports: [
-    CommonModule,
     ImageComponent,
     NgbProgressbar,
     DownloadIndicatorComponent,
@@ -62,7 +67,12 @@ import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
     RouterLink,
     TranslocoModule,
     SafeHtmlPipe,
-    RouterLinkActive
+    RouterLinkActive,
+    PromotedIconComponent,
+    SeriesFormatComponent,
+    DecimalPipe,
+    NgTemplateOutlet,
+    CompactNumberPipe
   ],
   templateUrl: './card-item.component.html',
   styleUrls: ['./card-item.component.scss'],
@@ -81,6 +91,7 @@ export class CardItemComponent implements OnInit {
   private readonly scrollService = inject(ScrollService);
   private readonly cdRef = inject(ChangeDetectorRef);
   private readonly actionFactoryService = inject(ActionFactoryService);
+
   protected readonly MangaFormat = MangaFormat;
 
   /**
@@ -91,10 +102,6 @@ export class CardItemComponent implements OnInit {
    * Name of the card
    */
   @Input() title = '';
-  /**
-   * Shows below the title. Defaults to not visible
-   */
-  @Input() subtitle = '';
   /**
    * Any actions to perform on the card
    */
@@ -114,7 +121,7 @@ export class CardItemComponent implements OnInit {
   /**
    * This is the entity we are representing. It will be returned if an action is executed.
    */
-  @Input({required: true}) entity!: Series | Volume | Chapter | CollectionTag | PageBookmark | RecentlyAddedItem | NextExpectedChapter;
+  @Input({required: true}) entity!: CardEntity;
   /**
    * If the entity is selected or not.
    */
@@ -132,13 +139,25 @@ export class CardItemComponent implements OnInit {
    */
   @Input() count: number = 0;
   /**
-   * Additional information to show on the overlay area. Will always render.
+   * Show a read button. Emits on (readClicked)
    */
-  @Input() overlayInformation: string = '';
+  @Input() showReadButton: boolean = false;
   /**
    * If overlay is enabled, should the text be centered or not
    */
   @Input() centerOverlay = false;
+  /**
+   * Will generate a button to instantly read
+   */
+  @Input() hasReadButton = false;
+  /**
+   * A method that if defined will return the url
+   */
+  @Input() linkUrl?: string;
+  /**
+   * Show the format of the series
+   */
+  @Input() showFormat: boolean = true;
   /**
    * Event emitted when item is clicked
    */
@@ -147,6 +166,8 @@ export class CardItemComponent implements OnInit {
    * When the card is selected.
    */
   @Output() selection = new EventEmitter<boolean>();
+  @Output() readClicked = new EventEmitter<CardEntity>();
+  @ContentChild('subtitle') subtitleTemplate!: TemplateRef<any>;
   /**
    * Library name item belongs to
    */
@@ -198,13 +219,14 @@ export class CardItemComponent implements OnInit {
     this.format = (this.entity as Series).format;
 
     if (this.utilityService.isChapter(this.entity)) {
-      const chapterTitle = this.utilityService.asChapter(this.entity).titleName;
+      const chapter = this.utilityService.asChapter(this.entity);
+      const chapterTitle = chapter.titleName;
       if (chapterTitle === '' || chapterTitle === null || chapterTitle === undefined) {
-        const volumeTitle = this.utilityService.asChapter(this.entity).volumeTitle
+        const volumeTitle = chapter.volumeTitle
         if (volumeTitle === '' || volumeTitle === null || volumeTitle === undefined) {
           this.tooltipTitle = (this.title).trim();
         } else {
-          this.tooltipTitle = (this.utilityService.asChapter(this.entity).volumeTitle + ' ' + this.title).trim();
+          this.tooltipTitle = (volumeTitle + ' ' + this.title).trim();
         }
       } else {
         this.tooltipTitle = chapterTitle;
@@ -225,9 +247,10 @@ export class CardItemComponent implements OnInit {
       const nextDate = (this.entity as NextExpectedChapter);
 
       const tokens = nextDate.title.split(':');
-      this.overlayInformation = `
-              <i class="fa-regular fa-clock mb-2" style="font-size: 26px" aria-hidden="true"></i>
-              <div>${tokens[0]}</div><div>${tokens[1]}</div>`;
+      // this.overlayInformation = `
+      //         <i class="fa-regular fa-clock mb-2" style="font-size: 26px" aria-hidden="true"></i>
+      //         <div>${tokens[0]}</div><div>${tokens[1]}</div>`;
+      // // todo: figure out where this caller is
       this.centerOverlay = true;
 
       if (nextDate.expectedDate) {
@@ -236,6 +259,8 @@ export class CardItemComponent implements OnInit {
       }
 
       this.cdRef.markForCheck();
+    } else {
+      this.tooltipTitle = this.title;
     }
 
 
@@ -350,7 +375,7 @@ export class CardItemComponent implements OnInit {
 
 
   isPromoted() {
-    const tag = this.entity as CollectionTag;
+    const tag = this.entity as UserCollection;
     return tag.hasOwnProperty('promoted') && tag.promoted;
   }
 
@@ -377,5 +402,17 @@ export class CardItemComponent implements OnInit {
       //   this.actions = this.actions.filter(a => a.title !== 'Send To');
       // }
     }
+
+    // this.actions = this.actions.filter(a => {
+    //   if (!a.isAllowed) return true;
+    //   return a.isAllowed(a, this.entity);
+    // });
+  }
+
+  clickRead(event: any) {
+    event.stopPropagation();
+    if (this.bulkSelectionService.hasSelections()) return;
+
+    this.readClicked.emit(this.entity);
   }
 }

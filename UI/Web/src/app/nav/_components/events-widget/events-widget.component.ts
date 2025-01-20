@@ -9,8 +9,7 @@ import {
   OnInit
 } from '@angular/core';
 import { NgbModal, NgbModalRef, NgbPopover } from '@ng-bootstrap/ng-bootstrap';
-import { BehaviorSubject, Observable, of } from 'rxjs';
-import { map, shareReplay } from 'rxjs/operators';
+import {BehaviorSubject, debounceTime, startWith} from 'rxjs';
 import { ConfirmConfig } from 'src/app/shared/confirm-dialog/_models/confirm-config';
 import { ConfirmService } from 'src/app/shared/confirm.service';
 import { UpdateNotificationModalComponent } from 'src/app/shared/update-notification/update-notification-modal.component';
@@ -25,8 +24,9 @@ import { EVENTS, Message, MessageHubService } from 'src/app/_services/message-hu
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
 import { SentenceCasePipe } from '../../../_pipes/sentence-case.pipe';
 import { CircularLoaderComponent } from '../../../shared/circular-loader/circular-loader.component';
-import { NgIf, NgClass, NgStyle, NgFor, AsyncPipe } from '@angular/common';
-import {TranslocoDirective} from "@ngneat/transloco";
+import { NgClass, NgStyle, AsyncPipe } from '@angular/common';
+import {TranslocoDirective} from "@jsverse/transloco";
+import {DefaultModalOptions} from "../../../_models/default-modal-options";
 
 @Component({
     selector: 'app-nav-events-toggle',
@@ -34,13 +34,19 @@ import {TranslocoDirective} from "@ngneat/transloco";
     styleUrls: ['./events-widget.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: true,
-  imports: [NgIf, NgClass, NgbPopover, NgStyle, CircularLoaderComponent, NgFor, AsyncPipe, SentenceCasePipe, TranslocoDirective]
+  imports: [NgClass, NgbPopover, NgStyle, CircularLoaderComponent, AsyncPipe, SentenceCasePipe, TranslocoDirective]
 })
 export class EventsWidgetComponent implements OnInit, OnDestroy {
-  @Input({required: true}) user!: User;
+  public readonly downloadService = inject(DownloadService);
+  public readonly messageHub = inject(MessageHubService);
+  private readonly modalService = inject(NgbModal);
+  protected readonly accountService = inject(AccountService);
+  private readonly confirmService = inject(ConfirmService);
+  private readonly cdRef = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
 
-  isAdmin$: Observable<boolean> = of(false);
+  @Input({required: true}) user!: User;
+
 
   /**
    * Progress events (Event Type: 'started', 'ended', 'updated' that have progress property)
@@ -59,18 +65,16 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
 
   private updateNotificationModalRef: NgbModalRef | null = null;
 
+  activeEventsSource = new BehaviorSubject<number>(0);
+  activeEvents$ = this.activeEventsSource.asObservable().pipe(startWith(0), takeUntilDestroyed(this.destroyRef), debounceTime(100));
   activeEvents: number = 0;
-
-  debugMode: boolean = false;
+  /**
+   * Intercepts from Single Updates to show an extra indicator to the user
+   */
+  updateAvailable: boolean = false;
 
   protected readonly EVENTS = EVENTS;
 
-  public readonly downloadService = inject(DownloadService);
-
-  constructor(public messageHub: MessageHubService, private modalService: NgbModal,
-    private accountService: AccountService, private confirmService: ConfirmService,
-    private readonly cdRef: ChangeDetectorRef) {
-    }
 
   ngOnDestroy(): void {
     this.progressEventsSource.complete();
@@ -87,23 +91,19 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
         values.push(event.payload as ErrorEvent);
         this.errorSource.next(values);
         this.activeEvents += 1;
+        this.activeEventsSource.next(this.activeEvents);
         this.cdRef.markForCheck();
       } else if (event.event === EVENTS.Info) {
         const values = this.infoSource.getValue();
         values.push(event.payload as InfoEvent);
         this.infoSource.next(values);
         this.activeEvents += 1;
+        this.activeEventsSource.next(this.activeEvents);
         this.cdRef.markForCheck();
       } else if (event.event === EVENTS.UpdateAvailable) {
         this.handleUpdateAvailableClick(event.payload);
       }
     });
-
-    this.isAdmin$ = this.accountService.currentUser$.pipe(
-      takeUntilDestroyed(this.destroyRef),
-      map(user => (user && this.accountService.hasAdminRole(user)) || false),
-      shareReplay()
-    );
   }
 
   processNotificationProgressEvent(event: Message<NotificationProgressEvent>) {
@@ -115,10 +115,14 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
         values.push(message);
         this.singleUpdateSource.next(values);
         this.activeEvents += 1;
+        this.activeEventsSource.next(this.activeEvents);
+        if (event.payload.name === EVENTS.UpdateAvailable) {
+          this.updateAvailable = true;
+        }
         this.cdRef.markForCheck();
         break;
       case 'started':
-        // Sometimes we can receive 2 started on long running scans, so better to just treat as a merge then.
+        // Sometimes we can receive 2 started on long-running scans, so better to just treat as a merge then.
         data = this.mergeOrUpdate(this.progressEventsSource.getValue(), message);
         this.progressEventsSource.next(data);
         break;
@@ -131,6 +135,7 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
         data = data.filter(m => m.name !== message.name);
         this.progressEventsSource.next(data);
         this.activeEvents = Math.max(this.activeEvents - 1, 0);
+        this.activeEventsSource.next(this.activeEvents);
         this.cdRef.markForCheck();
         break;
       default:
@@ -144,6 +149,7 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
     if (index < 0) {
       data.push(message);
       this.activeEvents += 1;
+      this.activeEventsSource.next(this.activeEvents);
       this.cdRef.markForCheck();
     } else {
       data[index] = message;
@@ -154,7 +160,7 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
 
   handleUpdateAvailableClick(message: NotificationProgressEvent | UpdateVersionEvent) {
     if (this.updateNotificationModalRef != null) { return; }
-    this.updateNotificationModalRef = this.modalService.open(UpdateNotificationModalComponent, { scrollable: true, size: 'lg' });
+    this.updateNotificationModalRef = this.modalService.open(UpdateNotificationModalComponent, DefaultModalOptions);
     if (message.hasOwnProperty('body')) {
       this.updateNotificationModalRef.componentInstance.updateData = (message as NotificationProgressEvent).body as UpdateVersionEvent;
     } else {
@@ -195,6 +201,7 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
     this.infoSource.next([]);
     this.errorSource.next([]);
     this.activeEvents -= Math.max(infoCount + errorCount, 0);
+    this.activeEventsSource.next(this.activeEvents);
     this.cdRef.markForCheck();
   }
 
@@ -214,6 +221,7 @@ export class EventsWidgetComponent implements OnInit, OnDestroy {
       this.errorSource.next(data);
     }
     this.activeEvents = Math.max(this.activeEvents - 1, 0);
+    this.activeEventsSource.next(this.activeEvents);
     this.cdRef.markForCheck();
   }
 

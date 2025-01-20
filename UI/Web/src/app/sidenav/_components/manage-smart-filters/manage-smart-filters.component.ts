@@ -1,18 +1,18 @@
-import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject} from '@angular/core';
-import {CommonModule} from '@angular/common';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input} from '@angular/core';
 import {FilterService} from "../../../_services/filter.service";
 import {SmartFilter} from "../../../_models/metadata/v2/smart-filter";
-import {Router} from "@angular/router";
-import {ConfirmService} from "../../../shared/confirm.service";
-import {translate, TranslocoDirective} from "@ngneat/transloco";
-import {ToastrService} from "ngx-toastr";
+import {TranslocoDirective} from "@jsverse/transloco";
 import {FormControl, FormGroup, ReactiveFormsModule} from "@angular/forms";
 import {FilterPipe} from "../../../_pipes/filter.pipe";
+import {ActionService} from "../../../_services/action.service";
+import {NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {RouterLink} from "@angular/router";
+import {APP_BASE_HREF} from "@angular/common";
 
 @Component({
   selector: 'app-manage-smart-filters',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, TranslocoDirective, FilterPipe],
+  imports: [ReactiveFormsModule, TranslocoDirective, FilterPipe, NgbTooltip, RouterLink],
   templateUrl: './manage-smart-filters.component.html',
   styleUrls: ['./manage-smart-filters.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -20,10 +20,12 @@ import {FilterPipe} from "../../../_pipes/filter.pipe";
 export class ManageSmartFiltersComponent {
 
   private readonly filterService = inject(FilterService);
-  private readonly confirmService = inject(ConfirmService);
-  private readonly router = inject(Router);
   private readonly cdRef = inject(ChangeDetectorRef);
-  private readonly toastr = inject(ToastrService);
+  private readonly actionService = inject(ActionService);
+  protected readonly baseUrl = inject(APP_BASE_HREF);
+
+  @Input() target: '_self' | '_blank' = '_blank';
+
   filters: Array<SmartFilter> = [];
   listForm: FormGroup = new FormGroup({
     'filterQuery': new FormControl('', [])
@@ -33,11 +35,6 @@ export class ManageSmartFiltersComponent {
     const filterVal = (this.listForm.value.filterQuery || '').toLowerCase();
     return listItem.name.toLowerCase().indexOf(filterVal) >= 0;
   }
-  resetFilter() {
-    this.listForm.get('filterQuery')?.setValue('');
-    this.cdRef.markForCheck();
-  }
-
 
   constructor() {
     this.loadData();
@@ -50,15 +47,18 @@ export class ManageSmartFiltersComponent {
     });
   }
 
-  async loadFilter(f: SmartFilter) {
-    await this.router.navigateByUrl('all-series?' + f.filter);
+  resetFilter() {
+    this.listForm.get('filterQuery')?.setValue('');
+    this.cdRef.markForCheck();
+  }
+
+  isErrored(filter: SmartFilter) {
+    return !decodeURIComponent(filter.filter).includes('¦');
   }
 
   async deleteFilter(f: SmartFilter) {
-    if (!await this.confirmService.confirm(translate('toasts.confirm-delete-smart-filter'))) return;
-
-    this.filterService.deleteFilter(f.id).subscribe(() => {
-      this.toastr.success(translate('toasts.smart-filter-deleted'));
+    await this.actionService.deleteFilter(f.id, success => {
+      if (!success) return;
       this.resetFilter();
       this.loadData();
     });

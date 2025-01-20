@@ -6,7 +6,8 @@ import { MangaFormat } from 'src/app/_models/manga-format';
 import { PaginatedResult } from 'src/app/_models/pagination';
 import { Series } from 'src/app/_models/series';
 import { Volume } from 'src/app/_models/volume';
-import {TranslocoService} from "@ngneat/transloco";
+import {translate, TranslocoService} from "@jsverse/transloco";
+import {debounceTime, ReplaySubject, shareReplay} from "rxjs";
 
 export enum KEY_CODES {
   RIGHT_ARROW = 'ArrowRight',
@@ -37,13 +38,14 @@ export enum Breakpoint {
 })
 export class UtilityService {
 
-  mangaFormatKeys: string[] = [];
+  public readonly activeBreakpointSource = new ReplaySubject<Breakpoint>(1);
+  public readonly activeBreakpoint$ = this.activeBreakpointSource.asObservable().pipe(debounceTime(60), shareReplay({bufferSize: 1, refCount: true}));
 
-  constructor(private translocoService: TranslocoService) { }
+  mangaFormatKeys: string[] = [];
 
 
   sortChapters = (a: Chapter, b: Chapter) => {
-    return parseFloat(a.number) - parseFloat(b.number);
+    return a.minNumber - b.minNumber;
   }
 
   mangaFormatToText(format: MangaFormat): string {
@@ -59,20 +61,25 @@ export class UtilityService {
    * @param libraryType
    * @param includeHash For comics only, includes a # which is used for numbering on cards
    * @param includeSpace Add a space at the end of the string. if includeHash and includeSpace are true, only hash will be at the end.
+   * @param plural Pluralize word
    * @returns
    */
-   formatChapterName(libraryType: LibraryType, includeHash: boolean = false, includeSpace: boolean = false) {
-    switch(libraryType) {
+   formatChapterName(libraryType: LibraryType, includeHash: boolean = false, includeSpace: boolean = false, plural: boolean = false) {
+    const extra = plural ? 's' : '';
+
+     switch(libraryType) {
       case LibraryType.Book:
-        return this.translocoService.translate('common.book-num') + (includeSpace ? ' ' : '');
+      case LibraryType.LightNovel:
+        return translate('common.book-num' + extra) + (includeSpace ? ' ' : '');
       case LibraryType.Comic:
+      case LibraryType.ComicVine:
         if (includeHash) {
-          return this.translocoService.translate('common.issue-hash-num');
+          return translate('common.issue-hash-num');
         }
-        return this.translocoService.translate('common.issue-num') + (includeSpace ? ' ' : '');
+        return translate('common.issue-num' + extra) + (includeSpace ? ' ' : '');
       case LibraryType.Images:
       case LibraryType.Manga:
-        return this.translocoService.translate('common.chapter-num') + (includeSpace ? ' ' : '');
+        return translate('common.chapter-num' + extra) + (includeSpace ? ' ' : '');
     }
   }
 
@@ -131,7 +138,7 @@ export class UtilityService {
     );
   }
 
-  deepEqual(object1: any, object2: any) {
+  deepEqual(object1: any | undefined | null, object2: any | undefined | null) {
     if ((object1 === null || object1 === undefined) && (object2 !== null || object2 !== undefined)) return false;
     if ((object2 === null || object2 === undefined) && (object1 !== null || object1 !== undefined)) return false;
     if (object1 === null && object2 === null) return true;

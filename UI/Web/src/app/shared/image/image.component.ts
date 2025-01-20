@@ -1,20 +1,20 @@
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
-  Component, DestroyRef,
+  Component,
+  DestroyRef,
   ElementRef,
   inject,
   Input,
   OnChanges,
   Renderer2,
+  RendererStyleFlags2,
   ViewChild
 } from '@angular/core';
-import { CoverUpdateEvent } from 'src/app/_models/events/cover-update-event';
-import { ImageService } from 'src/app/_services/image.service';
-import { EVENTS, MessageHubService } from 'src/app/_services/message-hub.service';
+import {CoverUpdateEvent} from 'src/app/_models/events/cover-update-event';
+import {ImageService} from 'src/app/_services/image.service';
+import {EVENTS, MessageHubService} from 'src/app/_services/message-hub.service';
 import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
-import {CommonModule, NgOptimizedImage} from "@angular/common";
 import {LazyLoadImageModule, StateChange} from "ng-lazyload-image";
 
 /**
@@ -23,7 +23,7 @@ import {LazyLoadImageModule, StateChange} from "ng-lazyload-image";
 @Component({
   selector: 'app-image',
   standalone: true,
-  imports: [CommonModule, NgOptimizedImage, LazyLoadImageModule],
+  imports: [LazyLoadImageModule],
   templateUrl: './image.component.html',
   styleUrls: ['./image.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -48,26 +48,6 @@ export class ImageComponent implements OnChanges {
    * Height of the image. If not defined, will not be applied
    */
   @Input() height: string = '';
-  /**
-   * Max Width of the image. If not defined, will not be applied
-   */
-  @Input() maxWidth: string = '';
-  /**
-   * Max Height of the image. If not defined, will not be applied
-   */
-   @Input() maxHeight: string = '';
-  /**
-   * Border Radius of the image. If not defined, will not be applied
-   */
-   @Input() borderRadius: string = '';
-     /**
-   * Object fit of the image. If not defined, will not be applied
-   */
-   @Input() objectFit: string = '';
-  /**
-   * Background of the image. If not defined, will not be applied
-   */
-   @Input() background: string = '';
    /**
     * If the image component should respond to cover updates
     */
@@ -79,11 +59,18 @@ export class ImageComponent implements OnChanges {
   /**
    * A collection of styles to apply. This is useful if the parent component doesn't want to use no view encapsulation
    */
-  @Input() styles: string = '';
+  @Input() styles: {[key: string]: string} = {};
   @Input() errorImage: string = this.imageService.errorImage;
+  /**
+   * If the image load fails, instead of showing an error image, hide the image (visibility)
+   */
+  @Input() hideOnError: boolean = false;
+  /**
+   * Sets the object-fit property of the image. Default is 'fill'.
+   */
+  @Input() objectFit: 'fill' | 'contain' | 'cover' | 'none' | 'scale-down' = 'fill';
 
   @ViewChild('img', {static: true}) imgElem!: ElementRef<HTMLImageElement>;
-
 
   constructor() {
     this.hubService.messages$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(res => {
@@ -110,41 +97,26 @@ export class ImageComponent implements OnChanges {
   }
 
   ngOnChanges(): void {
-    if (this.width != '') {
+    if (this.width !== '') {
       this.renderer.setStyle(this.imgElem.nativeElement, 'width', this.width);
     }
 
-    if (this.height != '') {
+    if (this.height !== '') {
       this.renderer.setStyle(this.imgElem.nativeElement, 'height', this.height);
     }
 
-    if (this.maxWidth != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'max-width', this.maxWidth);
-    }
-
-    if (this.maxHeight != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'max-height', this.maxHeight);
-    }
-
-    if (this.borderRadius != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'border-radius', this.borderRadius);
-    }
-
-    if (this.objectFit != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'object-fit', this.objectFit);
-    }
-
-    if (this.background != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'background', this.background);
-    }
-
-    if (this.styles != '') {
-      this.renderer.setStyle(this.imgElem.nativeElement, 'styles', this.styles);
+    const styleKeys = Object.keys(this.styles);
+    if (styleKeys.length !== 0) {
+      styleKeys.forEach(key => {
+        this.renderer.setStyle(this.imgElem.nativeElement, key, this.styles[key], RendererStyleFlags2.Important);
+      });
     }
 
     if (this.classes != '') {
-      this.renderer.addClass(this.imgElem.nativeElement, this.classes);
+      const classTokens = this.classes.split(' ');
+      classTokens.forEach(cls => this.renderer.addClass(this.imgElem.nativeElement, cls));
     }
+    this.cdRef.markForCheck();
   }
 
 
@@ -173,6 +145,9 @@ export class ImageComponent implements OnChanges {
         // The image could not be loaded for some reason.
         // `event.data` is the error in this case
         this.renderer.removeClass(image, 'fade-in');
+        if (this.hideOnError) {
+          this.renderer.addClass(image, 'd-none');
+        }
         this.cdRef.markForCheck();
         break;
       case 'finally':

@@ -30,9 +30,10 @@ import { CardItemComponent } from '../../../cards/card-item/card-item.component'
 import { CardDetailLayoutComponent } from '../../../cards/card-detail-layout/card-detail-layout.component';
 import { BulkOperationsComponent } from '../../../cards/bulk-operations/bulk-operations.component';
 import { SideNavCompanionBarComponent } from '../../../sidenav/_components/side-nav-companion-bar/side-nav-companion-bar.component';
-import {translate, TranslocoDirective, TranslocoService} from "@ngneat/transloco";
+import {translate, TranslocoDirective, TranslocoService} from "@jsverse/transloco";
 import {SeriesFilterV2} from "../../../_models/metadata/v2/series-filter-v2";
 import {Title} from "@angular/platform-browser";
+import {WikiLink} from "../../../_models/wiki";
 
 @Component({
   selector: 'app-bookmarks',
@@ -58,6 +59,8 @@ export class BookmarksComponent implements OnInit {
   private readonly titleService = inject(Title);
   public readonly bulkSelectionService = inject(BulkSelectionService);
   public readonly imageService = inject(ImageService);
+
+  protected readonly WikiLink = WikiLink;
 
   bookmarks: Array<PageBookmark> = [];
   series: Array<Series> = [];
@@ -96,20 +99,6 @@ export class BookmarksComponent implements OnInit {
     this.actions = this.actionFactoryService.getBookmarkActions(this.handleAction.bind(this));
   }
 
-
-  @HostListener('document:keydown.shift', ['$event'])
-  handleKeypress(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = true;
-    }
-  }
-
-  @HostListener('document:keyup.shift', ['$event'])
-  handleKeyUp(event: KeyboardEvent) {
-    if (event.key === KEY_CODES.SHIFT) {
-      this.bulkSelectionService.isShiftDown = false;
-    }
-  }
 
   async handleAction(action: ActionItem<Series>, series: Series) {
     switch (action.action) {

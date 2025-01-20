@@ -12,28 +12,30 @@ import { AppRoutingModule } from './app/app-routing.module';
 import { Title, BrowserModule, bootstrapApplication } from '@angular/platform-browser';
 import { JwtInterceptor } from './app/_interceptors/jwt.interceptor';
 import { ErrorInterceptor } from './app/_interceptors/error.interceptor';
-import {HTTP_INTERCEPTORS, withInterceptorsFromDi, provideHttpClient} from '@angular/common/http';
+import { HTTP_INTERCEPTORS, withInterceptorsFromDi, provideHttpClient } from '@angular/common/http';
 import {
     provideTransloco, TranslocoConfig,
     TranslocoService
-} from "@ngneat/transloco";
+} from "@jsverse/transloco";
 import {environment} from "./environments/environment";
 import {HttpLoader} from "./httpLoader";
 import {
   provideTranslocoPersistLang,
-} from '@ngneat/transloco-persist-lang';
+} from "@jsverse/transloco-persist-lang";
 import {AccountService} from "./app/_services/account.service";
 import {switchMap} from "rxjs";
-import {provideTranslocoLocale} from "@ngneat/transloco-locale";
-import {provideTranslocoPersistTranslations} from "@ngneat/transloco-persist-translations";
+import {provideTranslocoLocale} from "@jsverse/transloco-locale";
+import {provideTranslocoPersistTranslations} from "@jsverse/transloco-persist-translations";
 import {LazyLoadImageModule} from "ng-lazyload-image";
 import {getSaver, SAVER} from "./app/_providers/saver.provider";
+import {distinctUntilChanged} from "rxjs/operators";
+import {APP_BASE_HREF, PlatformLocation} from "@angular/common";
 
 const disableAnimations = !('animate' in document.documentElement);
 
 export function preloadUser(userService: AccountService, transloco: TranslocoService) {
   return function() {
-    return userService.currentUser$.pipe(switchMap((user) => {
+    return userService.currentUser$.pipe(distinctUntilChanged(), switchMap((user) => {
       if (user && user.preferences.locale) {
         transloco.setActiveLang(user.preferences.locale);
         return transloco.load(user.preferences.locale)
@@ -97,7 +99,7 @@ const languageCodes = [
   'syr', 'syr_SY', 'ta', 'ta_IN', 'te', 'te_IN', 'th', 'th_TH', 'tl', 'tl_PH', 'tn',
   'tn_ZA', 'tr', 'tr_TR', 'tt', 'tt_RU', 'ts', 'uk', 'uk_UA', 'ur', 'ur_PK', 'uz',
   'uz_UZ', 'uz_UZ', 'vi', 'vi_VN', 'xh', 'xh_ZA', 'zh', 'zh_CN', 'zh_HK', 'zh_MO',
-  'zh_SG', 'zh_TW', 'zu', 'zu_ZA', 'zh_Hans', 'zh_Hant', 'nb_NO'
+  'zh_SG', 'zh_TW', 'zu', 'zu_ZA', 'zh_Hans', 'zh_Hant', 'nb_NO', 'ga'
 ];
 
 const translocoOptions = {
@@ -113,6 +115,10 @@ const translocoOptions = {
     },
   } as TranslocoConfig
 };
+
+function getBaseHref(platformLocation: PlatformLocation): string {
+  return platformLocation.getBaseHrefFromDOM();
+}
 
 bootstrapApplication(AppComponent, {
     providers: [
@@ -148,6 +154,11 @@ bootstrapApplication(AppComponent, {
         preLoad,
         Title,
         { provide: SAVER, useFactory: getSaver },
+        {
+          provide: APP_BASE_HREF,
+          useFactory: getBaseHref,
+          deps: [PlatformLocation]
+        },
         provideHttpClient(withInterceptorsFromDi())
     ]
 } as ApplicationConfig)

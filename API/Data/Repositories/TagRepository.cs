@@ -5,6 +5,7 @@ using API.DTOs.Metadata;
 using API.Entities;
 using API.Extensions;
 using API.Extensions.QueryExtensions;
+using API.Services.Tasks.Scanner.Parser;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,8 @@ public interface ITagRepository
     Task<IList<Tag>> GetAllTagsByNameAsync(IEnumerable<string> normalizedNames);
     Task<IList<TagDto>> GetAllTagDtosAsync(int userId);
     Task RemoveAllTagNoLongerAssociated();
-    Task<IList<TagDto>> GetAllTagDtosForLibrariesAsync(IList<int> libraryIds, int userId);
+    Task<IList<TagDto>> GetAllTagDtosForLibrariesAsync(int userId, IList<int>? libraryIds = null);
+    Task<List<string>> GetAllTagsNotInListAsync(ICollection<string> tags);
 }
 
 public class TagRepository : ITagRepository
@@ -57,11 +59,18 @@ public class TagRepository : ITagRepository
         await _context.SaveChangesAsync();
     }
 
-    public async Task<IList<TagDto>> GetAllTagDtosForLibrariesAsync(IList<int> libraryIds, int userId)
+    public async Task<IList<TagDto>> GetAllTagDtosForLibrariesAsync(int userId, IList<int>? libraryIds = null)
     {
         var userRating = await _context.AppUser.GetUserAgeRestriction(userId);
+        var userLibs = await _context.Library.GetUserLibraries(userId).ToListAsync();
+
+        if (libraryIds is {Count: > 0})
+        {
+            userLibs = userLibs.Where(libraryIds.Contains).ToList();
+        }
+
         return await _context.Series
-            .Where(s => libraryIds.Contains(s.LibraryId))
+            .Where(s => userLibs.Contains(s.LibraryId))
             .RestrictAgainstAgeRestriction(userRating)
             .SelectMany(s => s.Metadata.Tags)
             .AsSplitQuery()
@@ -70,6 +79,28 @@ public class TagRepository : ITagRepository
             .AsNoTracking()
             .ProjectTo<TagDto>(_mapper.ConfigurationProvider)
             .ToListAsync();
+    }
+
+    public async Task<List<string>> GetAllTagsNotInListAsync(ICollection<string> tags)
+    {
+        // Create a dictionary mapping normalized names to non-normalized names
+        var normalizedToOriginalMap = tags.Distinct()
+            .GroupBy(Parser.Normalize)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        var normalizedTagNames = normalizedToOriginalMap.Keys.ToList();
+
+        // Query the database for existing genres using the normalized names
+        var existingTags = await _context.Tag
+            .Where(g => normalizedTagNames.Contains(g.NormalizedTitle)) // Assuming you have a normalized field
+            .Select(g => g.NormalizedTitle)
+            .ToListAsync();
+
+        // Find the normalized genres that do not exist in the database
+        var missingTags = normalizedTagNames.Except(existingTags).ToList();
+
+        // Return the original non-normalized genres for the missing ones
+        return missingTags.Select(normalizedName => normalizedToOriginalMap[normalizedName]).ToList();
     }
 
     public async Task<IList<Tag>> GetAllTagsAsync()

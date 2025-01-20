@@ -1,6 +1,6 @@
 import { Pipe, PipeTransform } from '@angular/core';
 import {SortField} from "../_models/metadata/series-filter";
-import {TranslocoService} from "@ngneat/transloco";
+import {TranslocoService} from "@jsverse/transloco";
 
 @Pipe({
   name: 'sortField',
@@ -29,6 +29,8 @@ export class SortFieldPipe implements PipeTransform {
         return this.translocoService.translate('sort-field-pipe.read-progress');
       case SortField.AverageRating:
         return this.translocoService.translate('sort-field-pipe.average-rating');
+      case SortField.Random:
+        return this.translocoService.translate('sort-field-pipe.random');
     }
 
   }
